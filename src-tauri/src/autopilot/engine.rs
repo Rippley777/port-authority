@@ -124,7 +124,7 @@ impl Autopilot {
             .map(|p| (*p).clone());
         let seen = owner
             .as_ref()
-            .and_then(|p| p.pid.zip(p.started_at))
+            .and_then(|p| p.identity())
             .is_some_and(|id| observed.contains(&id));
         let safety = classify(owner.as_ref(), &capture.cwd, seen);
         let alternate_supported = capture.alternate(port.saturating_add(1)).is_some();

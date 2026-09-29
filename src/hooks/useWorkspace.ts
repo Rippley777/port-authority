@@ -34,16 +34,8 @@ export function useWorkspace() {
     parseFavorites,
   );
   const monitor = usePorts(settings);
-  const {
-    ports,
-    paused,
-    setPaused,
-    refresh,
-    scanning,
-    error,
-    history,
-    lastScan,
-  } = monitor;
+  const { ports, paused, setPaused, refresh, scanning, error, lastScan } =
+    monitor;
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("All");
   const [sort, setSort] = useState<SortKey>("port");
@@ -264,7 +256,6 @@ export function useWorkspace() {
     refresh,
     scanning,
     error,
-    history,
     lastScan,
     query,
     setQuery,

@@ -54,6 +54,7 @@ pub struct ProjectEngine {
     wake: Condvar,
     file: Option<PathBuf>,
     persistence: Mutex<()>,
+    resolution: Mutex<()>,
 }
 impl ProjectEngine {
     pub fn new(file: Option<PathBuf>) -> Arc<Self> {
@@ -84,6 +85,7 @@ impl ProjectEngine {
             wake: Condvar::new(),
             file,
             persistence: Mutex::new(()),
+            resolution: Mutex::new(()),
         });
         let worker = engine.clone();
         thread::spawn(move || loop {
@@ -133,6 +135,13 @@ impl ProjectEngine {
         }
     }
     fn resolve_entries(&self, entries: &[PortEntry]) {
+        self.resolve(entries, true);
+    }
+    pub(crate) fn resolve_changed(&self, entries: &[PortEntry]) {
+        self.resolve(entries, false);
+    }
+    fn resolve(&self, entries: &[PortEntry], prune: bool) {
+        let _resolution = self.resolution.lock().unwrap();
         let live: HashSet<_> = entries.iter().filter_map(Key::of).collect();
         let now = crate::autopilot::models::now();
         let mut system = System::new();
@@ -231,7 +240,9 @@ impl ProjectEngine {
         }
         {
             let mut data = self.data.lock().unwrap();
-            data.processes.retain(|k, _| live.contains(k));
+            if prune {
+                data.processes.retain(|k, _| live.contains(k));
+            }
             data.roots
                 .retain(|_, (at, _)| at.elapsed() < Duration::from_secs(300));
             data.recent.sort_by_key(|r| {

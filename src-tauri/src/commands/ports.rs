@@ -1,17 +1,37 @@
 use crate::{ports::models::PortEntry, ScannerState};
 #[tauri::command]
 pub async fn scan_ports(
+    record_history: Option<bool>,
+    timeline: tauri::State<'_, crate::timeline::TimelineState>,
     state: tauri::State<'_, ScannerState>,
     projects: tauri::State<'_, std::sync::Arc<crate::projects::cache::ProjectEngine>>,
 ) -> Result<Vec<PortEntry>, String> {
+    let timeline = timeline.inner().clone();
     let scanner = state.inner().clone();
     let projects = projects.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let mut entries = scanner
+        let result = scanner
             .lock()
             .map_err(|_| "Socket scanner is unavailable. Restart Port Authority.".to_string())?
-            .scan()?;
+            .scan();
+        let mut entries = match result {
+            Ok(entries) => entries,
+            Err(error) => {
+                if let Ok(mut t) = timeline.lock() {
+                    t.pause("Socket scan unavailable");
+                }
+                return Err(error);
+            }
+        };
         projects.enrich(&mut entries, true);
+        if let Ok(mut t) = timeline.lock() {
+            if record_history != Some(false) {
+                t.observe(&entries, &projects);
+            } else {
+                t.pause("History recording disabled");
+            }
+        }
+        projects.enrich(&mut entries, false);
         Ok(entries)
     })
     .await

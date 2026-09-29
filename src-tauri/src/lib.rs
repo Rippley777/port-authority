@@ -1,5 +1,6 @@
 pub mod autopilot;
 pub mod projects;
+pub mod timeline;
 use tauri::{Emitter, Manager};
 mod commands;
 pub mod platform;
@@ -14,6 +15,9 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(Arc::new(Mutex::new(ports::scanner::Scanner::new())))
         .setup(|app| {
+            app.manage(Arc::new(Mutex::new(timeline::Timeline::new(
+                &app.path().app_data_dir()?.join("port-timeline.sqlite"),
+            ))));
             let projects = projects::cache::ProjectEngine::new(Some(
                 app.path().app_data_dir()?.join("recent-projects.json"),
             ));
@@ -48,6 +52,12 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::timeline::timeline_query,
+            commands::timeline::timeline_configure,
+            commands::timeline::timeline_clear,
+            commands::timeline::timeline_monitoring,
+            commands::timeline::timeline_inspect_tree,
+            commands::timeline::timeline_stop_tree,
             commands::projects::projects_snapshot,
             commands::projects::project_pin,
             commands::projects::project_forget,
@@ -63,6 +73,13 @@ pub fn run() {
             commands::processes::control_process,
             commands::processes::reveal_executable
         ])
-        .run(tauri::generate_context!())
-        .expect("Unable to start Port Authority");
+        .build(tauri::generate_context!())
+        .expect("Unable to start Port Authority")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                if let Ok(mut timeline) = app.state::<timeline::TimelineState>().lock() {
+                    timeline.pause("Port Authority closed");
+                }
+            }
+        });
 }

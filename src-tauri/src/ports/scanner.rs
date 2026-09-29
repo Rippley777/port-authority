@@ -7,7 +7,7 @@ use sysinfo::{Pid, ProcessesToUpdate, System, Users};
 pub struct Scanner {
     system: System,
     users: Users,
-    observed: HashSet<(u32, u64)>,
+    observed: HashSet<crate::process::ProcessIdentity>,
 }
 impl Default for Scanner {
     fn default() -> Self {
@@ -26,13 +26,12 @@ impl Scanner {
         self.system = System::new();
         self.scan()
     }
-    pub fn observed_identities(&self) -> HashSet<(u32, u64)> {
+    pub fn observed_identities(&self) -> HashSet<crate::process::ProcessIdentity> {
         self.observed.clone()
     }
     pub fn was_observed(&self, entry: &PortEntry) -> bool {
         entry
-            .pid
-            .zip(entry.started_at)
+            .identity()
             .is_some_and(|identity| self.observed.contains(&identity))
     }
     pub fn scan(&mut self) -> Result<Vec<PortEntry>, String> {
@@ -119,7 +118,7 @@ impl Scanner {
             self.observed.clear();
         }
         self.observed
-            .extend(entries.iter().filter_map(|e| e.pid.zip(e.started_at)));
+            .extend(entries.iter().filter_map(PortEntry::identity));
         Ok(entries)
     }
 }

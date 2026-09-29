@@ -78,12 +78,18 @@ test("termination requires confirmation and records history in preview", async (
     .getByRole("navigation", { name: "Main navigation" })
     .getByRole("button", { name: "History", exact: true })
     .click();
-  await expect(page.locator(".history-list")).toContainText(
-    "Shipwreck stopped listening on :5173",
+  await expect(page.locator(".timeline-event").first()).toContainText(
+    "Port released",
   );
-  await page.getByRole("button", { name: "Clear history" }).click();
+  await expect(page.locator(".timeline-event").first()).toContainText(
+    "Shipwreck",
+  );
+  await page
+    .getByRole("button", { name: "Clear History", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Delete all history" }).click();
   await expect(
-    page.getByRole("heading", { name: "A clean slate." }),
+    page.getByRole("heading", { name: "No matching activity yet." }),
   ).toBeVisible();
 });
 test("force kill remains confirmed and system processes are protected", async ({

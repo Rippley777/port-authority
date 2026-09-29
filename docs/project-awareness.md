@@ -8,7 +8,7 @@ Start a development service and open **Ports**. A listener appears immediately; 
 
 **Projects** groups observed listeners by canonical project root. Pin a project to keep it visible, including when it has no listeners. Recent projects retain their last observed time and known ports. An idle project's details offer **Forget recent project**. Restarting a service discovers its project again. There is no filesystem-wide project scan.
 
-Search the Ports view, Projects view, or command palette using a name, repository owner/name, absolute root, or displayed `~/…` path. The palette includes editor, terminal, repository, reveal, and show-ports commands for recent projects. History records the project name/path when attribution is available. Late enrichment updates matching events using PID, start time, and port; unresolved or older events retain the process fallback.
+Search the Ports view, Projects view, or command palette using a name, repository owner/name, absolute root, or displayed `~/…` path. The palette includes editor, terminal, repository, reveal, and show-ports commands for recent projects. Port Timeline snapshots project metadata through the cached native resolver when an ownership transition is recorded. Historical snapshots stay attached to that process identity after it exits. Live late enrichment still validates PID, start time, and metadata before updating a port row.
 
 In **Settings → Project applications**, choose Auto detect or a preferred editor and terminal. A missing application produces a useful error. The browser preview demonstrates grouping and pinning with separate sample data; application-launch buttons explicitly report that native desktop integration is required.
 

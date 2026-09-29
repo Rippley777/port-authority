@@ -1,3 +1,7 @@
+import {
+  useOpenTimeline,
+  useTimeline,
+} from "../../features/timeline/useTimeline";
 import { ProjectBadge } from "../../features/projects/ProjectBadge";
 import { useProjectContext } from "../../features/projects/useProjects";
 import {
@@ -32,6 +36,9 @@ interface Props {
   ) => Promise<void>;
 }
 export function ConflictCard({ conflict: c, busy, inspect, run }: Props) {
+  const viewTimeline = useOpenTimeline();
+  const timeline = useTimeline({ port: c.port, limit: 1 });
+  const recurring = timeline.data?.recurring[0];
   const projects = useProjectContext();
   const ownerProject = c.owner?.project;
   const failedProject = projects.projects.find(
@@ -60,6 +67,19 @@ export function ConflictCard({ conflict: c, busy, inspect, run }: Props) {
       className={`conflict-card ${resolved ? "resolved" : ""}`}
       aria-label={`Conflict on port ${c.port}`}
     >
+      <div className="conflict-history">
+        <button className="button" onClick={() => viewTimeline(c.port)}>
+          View Port History
+        </button>
+        {recurring && (
+          <p>
+            Observed {recurring.count} restarts / reclaims.{" "}
+            {recurring.persistentAncestor
+              ? `The same ${recurring.persistentAncestor.name} PID ${recurring.persistentAncestor.identity.pid} remains in the ancestry; stopping the child may let it return.`
+              : "Review the history before stopping the owner again."}
+          </p>
+        )}
+      </div>
       <div className="conflict-title">
         <span className="conflict-symbol">
           {resolved ? (

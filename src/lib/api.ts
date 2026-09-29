@@ -1,11 +1,35 @@
+import {
+  recordPreviewRelease,
+  queryTimeline,
+  configureTimeline,
+} from "../features/timeline/api";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { demoPorts } from "./demo";
 import type { PortEntry, ProcessAction } from "./types";
 export const desktop = isTauri();
 let previewPorts = [...demoPorts];
+let historyMigration: Promise<boolean> | undefined;
+async function migrateHistoryPreference(): Promise<boolean> {
+  try {
+    if (localStorage.getItem("pa-timeline-migrated")) return true;
+    const old = JSON.parse(localStorage.getItem("pa-settings") ?? "null");
+    if (old?.keepHistory === false) {
+      const page = await queryTimeline({ limit: 1 });
+      await configureTimeline({ ...page.config, enabled: false });
+    }
+    localStorage.setItem("pa-timeline-migrated", "1");
+    return true;
+  } catch {
+    // If migration fails, keep inspection usable without accidentally enabling recording.
+    historyMigration = undefined;
+    return false;
+  }
+}
 export async function scanPorts(): Promise<PortEntry[]> {
-  return desktop ? invoke("scan_ports") : [...previewPorts];
+  if (!desktop) return [...previewPorts];
+  historyMigration ??= migrateHistoryPreference();
+  return invoke("scan_ports", { recordHistory: await historyMigration });
 }
 export async function controlProcess(
   entry: PortEntry,
@@ -22,6 +46,8 @@ export async function controlProcess(
       action,
     });
   else {
+    for (const p of previewPorts.filter((p) => p.pid === entry.pid))
+      recordPreviewRelease(p);
     previewPorts = previewPorts.filter((p) => p.pid !== entry.pid);
   }
 }

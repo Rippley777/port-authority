@@ -76,7 +76,7 @@ Socket ownership checks and Unix signals cannot be made one atomic OS operation.
 - Existing live socket servers are not replaced; stale sockets are removed only after ownership/type checks and a refused connection.
 - Requests have size and I/O time limits. No TCP listener, external network service, or bearer secret in shell startup files is used.
 - Pending captures expire after 15 minutes. At most 32 recent conflicts and eight live recovered commands are retained. Active launch contexts remain in memory for verified owner restart until those launchers exit or the app quits.
-- stdout/stderr use a bounded 32 KiB memory buffer. Captured commands, environments, and diagnostic output are never persisted. Only the opt-in preference enters browser storage. Ordinary port start/stop events may still appear in the existing local history when enabled.
+- stdout/stderr use a bounded 32 KiB memory buffer. Captured commands, environments, and diagnostic output are never persisted. Only the opt-in preference enters browser storage. Port Timeline separately records observed ownership transitions when enabled, including snapshots of the listener’s process command and project metadata. View Port History exposes repeated returns and persistent ancestry before another kill/retry.
 - Operations are serialized; double clicks cannot start concurrent recoveries. Ignore and opt-out are refused during an active recovery, rather than discarding its context halfway through.
 - The browser preview uses clearly labeled, separate simulations; it never invokes native process recovery.
 

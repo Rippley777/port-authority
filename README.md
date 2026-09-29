@@ -4,6 +4,10 @@
 
 ![Port Authority’s ports view](docs/ports.png)
 
+## Port Timeline
+
+**History** is a local SQLite flight recorder for port ownership. Open **View Timeline** from a port to see claims, releases, restarts, saved process/project metadata, and monitoring gaps. Repeated returns surface persistent ancestors, with explicit process-tree review before stopping anything. History defaults to 30 days and writes only on transitions. [Usage, architecture, and limits](docs/port-timeline.md).
+
 ## Run
 
 Requires Node.js 20+ (22 recommended), npm, and Rust. `rust-toolchain.toml` selects Rust 1.95.0. Install the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/) first: Xcode command line tools on macOS, WebKitGTK 4.1 and build tools on Linux, or MSVC build tools and WebView2 on Windows.
@@ -20,7 +24,7 @@ npm run dev
 # http://127.0.0.1:1420
 ```
 
-The browser version is explicitly labeled **Preview workspace**. It uses sample services; killing a sample process only changes the preview. Browser actions still open the selected localhost URL when requested. Preview history is stored separately from native history. Native copy actions use the [Tauri clipboard plugin](https://v2.tauri.app/plugin/clipboard/) with write-only permission.
+The browser version is explicitly labeled **Preview workspace**. It uses sample services; killing a sample process only changes the preview. Browser actions still open the selected localhost URL when requested. Preview history is sample data, separate from native SQLite history. Native copy actions use the [Tauri clipboard plugin](https://v2.tauri.app/plugin/clipboard/) with write-only permission.
 
 For a desktop package:
 
@@ -79,6 +83,7 @@ src/
   hooks/             Monitoring, application state, validated persistence
   lib/               Typed bridge, pure filtering/reconciliation, preview fixtures
   features/projects/ Shared identities, details, actions, grouped workspace
+  features/timeline/ Timeline, ownership sessions, recurrence explanation, retention
 src-tauri/src/
   ports/             Core scanner, serializable socket/process models
   process/           Cached metadata policy and guarded process controller
@@ -86,6 +91,7 @@ src-tauri/src/
   commands/          Thin, asynchronous Tauri command adapters
   autopilot/         Conflict detection, classification, capture, recovery, and private IPC
   projects/          Resolver, bounded manifests, Git metadata, cache, and application actions
+  timeline/          Reconciliation, correlation, ancestry, SQLite, and monitoring sessions
 shell/               Optional bash/zsh integration
 ```
 
@@ -93,7 +99,7 @@ The discovery and control modules do not depend on Tauri. The desktop commands m
 
 A retained `sysinfo::System` provides CPU sampling across scans. Command, executable, and working-directory metadata refresh with each scan so process changes cannot retain a stale project association. The scanner refreshes relevant and cached process IDs, removes dead processes, and caps its cache at 4,096 entries. Scans never overlap in the UI. Full bounded snapshots cross IPC; the frontend reconciles unchanged row objects rather than resetting the table. Delta-only IPC and virtualization are future optimizations if profiling requires them.
 
-Settings, favorites, and history use the app webview’s local storage with validation and safe defaults. History retains 500 events by default, configurable to 100 or 1,000. Disabling history clears stored events. There is no persistent process-command log. CPU is initially zero until a second scan; process uptime is the process age, not socket age.
+Settings and favorites use validated webview storage. Port Timeline uses a local SQLite database with 30-day retention by default, configurable from 24 hours to forever. Event snapshots retain process commands and project metadata; disabling recording preserves saved history. Clear History removes retained events and monitoring sessions. CPU is initially zero until a second scan; process uptime is the process age, not socket age.
 
 ## Safety and platform behavior
 

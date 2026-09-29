@@ -203,29 +203,6 @@ test("late native enrichment works while paused and rejects reused PID metadata"
         "pa-settings",
         JSON.stringify({ refreshInterval: 10 }),
       );
-      localStorage.setItem(
-        "pa-history",
-        JSON.stringify([
-          {
-            id: "current",
-            time: Date.now(),
-            port: 5173,
-            process: "node",
-            processPid: raw.pid,
-            processStartedAt: raw.startedAt,
-            type: "started",
-          },
-          {
-            id: "previous-owner",
-            time: Date.now() - 10000,
-            port: 5173,
-            process: "old-process",
-            processPid: raw.pid,
-            processStartedAt: raw.startedAt! - 100,
-            type: "stopped",
-          },
-        ]),
-      );
     },
     { raw },
   );
@@ -254,14 +231,5 @@ test("late native enrichment works while paused and rejects reused PID metadata"
     [resolved],
   );
   await expect(page.locator(".port-table")).toContainText("Shipwreck");
-  await page
-    .getByRole("navigation", { name: "Main navigation" })
-    .getByRole("button", { name: "History", exact: true })
-    .click();
-  await expect(page.locator(".history-list")).toContainText(
-    "Shipwreck started listening",
-  );
-  await expect(page.locator(".history-list")).toContainText(
-    "Wrong project stopped listening",
-  );
+  await expect(page.locator(".port-table")).not.toContainText("Wrong project");
 });

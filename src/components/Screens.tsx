@@ -1,3 +1,4 @@
+import { TimelineSettings } from "../features/timeline/TimelineSettings";
 import { ProjectPreferences } from "../features/projects/ProjectPreferences";
 import {
   ArrowDownLeft,
@@ -12,10 +13,9 @@ import {
   Search,
   Shield,
   Star,
-  Trash2,
 } from "lucide-react";
 import { useState } from "react";
-import type { HistoryEvent, PortEntry, Settings } from "../lib/types";
+import type { PortEntry, Settings } from "../lib/types";
 import { portFromQuery, service, uptime } from "../lib/ports";
 import { ServiceIcon } from "./ServiceIcon";
 import { desktop } from "../lib/api";
@@ -331,72 +331,6 @@ export function Overview({
     </div>
   );
 }
-export function HistoryScreen({
-  history,
-  clear,
-  enabled,
-}: {
-  history: HistoryEvent[];
-  clear: () => void;
-  enabled: boolean;
-}) {
-  return (
-    <section className="panel history-panel">
-      <div className="panel-heading">
-        <div>
-          <History size={17} />
-          <h3>Recent activity</h3>
-          <span className="count-badge">{history.length}</span>
-        </div>
-        <button className="button" onClick={clear} disabled={!history.length}>
-          <Trash2 size={14} />
-          Clear history
-        </button>
-      </div>
-      {history.length ? (
-        <div className="history-list">
-          {history.map((event) => (
-            <div className="history-row" key={event.id}>
-              <time
-                className="mono"
-                title={new Date(event.time).toLocaleString()}
-              >
-                {new Date(event.time).toLocaleTimeString([], { hour12: false })}
-              </time>
-              <span className={`event-dot ${event.type}`} />
-              <div>
-                <strong title={event.projectPath}>
-                  {event.projectName ?? event.process}
-                </strong>{" "}
-                {event.type === "started"
-                  ? "started listening on"
-                  : "stopped listening on"}{" "}
-                <span className="mono">:{event.port}</span>
-              </div>
-              <span className="event-type">
-                {event.type === "started" ? "STARTED" : "STOPPED"}
-              </span>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="empty-state roomy">
-          <History size={30} />
-          <h3>{enabled ? "A clean slate." : "History is paused."}</h3>
-          <p>
-            {enabled
-              ? "New and stopped listeners will appear here as your workspace changes."
-              : "Enable local history in Settings to record port activity."}
-          </p>
-          <span className="privacy-caption">
-            <Shield size={13} />
-            Stored on this device only
-          </span>
-        </div>
-      )}
-    </section>
-  );
-}
 export function SettingsScreen({
   settings,
   change,
@@ -410,6 +344,7 @@ export function SettingsScreen({
   return (
     <div className="settings-stack">
       <ProjectPreferences settings={settings} change={change} />
+      <TimelineSettings />
       <section className="panel settings-panel">
         <h3>Monitoring</h3>
         <SettingRow
@@ -488,33 +423,7 @@ export function SettingsScreen({
         </SettingRow>
       </section>
       <section className="panel settings-panel">
-        <h3>History & appearance</h3>
-        <SettingRow
-          title="Keep local history"
-          description="Record started and stopped listeners. Turning off clears saved history."
-        >
-          <Toggle
-            label="Keep local history"
-            checked={settings.keepHistory}
-            onChange={() => update("keepHistory", !settings.keepHistory)}
-          />
-        </SettingRow>
-        <SettingRow
-          title="History retention"
-          description="Older events are automatically removed."
-        >
-          <select
-            aria-label="History retention"
-            value={settings.retention}
-            onChange={(e) => update("retention", Number(e.target.value))}
-          >
-            {[100, 500, 1000].map((n) => (
-              <option key={n} value={n}>
-                Last {n} events
-              </option>
-            ))}
-          </select>
-        </SettingRow>
+        <h3>Appearance</h3>
         <SettingRow
           title="Theme"
           description="System currently uses Port Authority’s dark appearance."

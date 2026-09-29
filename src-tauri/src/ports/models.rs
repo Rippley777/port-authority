@@ -26,3 +26,13 @@ pub struct PortEntry {
     pub restart_reason: String,
     pub permission_limited: bool,
 }
+
+use crate::process::ProcessIdentity;
+impl PortEntry {
+    pub fn identity(&self) -> Option<ProcessIdentity> {
+        Some(ProcessIdentity {
+            pid: self.pid?,
+            started_at: self.started_at.filter(|t| *t > 0)?,
+        })
+    }
+}

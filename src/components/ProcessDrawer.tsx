@@ -1,6 +1,8 @@
+import { useOpenTimeline } from "../features/timeline/useTimeline";
 import { ProjectSection } from "../features/projects/ProjectsScreen";
 import {
   Copy,
+  History,
   ExternalLink,
   FolderOpen,
   RotateCw,
@@ -33,6 +35,7 @@ export function ProcessDrawer({
   control,
   reveal,
 }: Props) {
+  const viewTimeline = useOpenTimeline();
   const details = [
     ["Process ID", p.pid],
     ["Parent process", p.parentPid],
@@ -91,6 +94,10 @@ export function ProcessDrawer({
           <span className="protocol">{p.protocol}</span>
         </div>
         <div className="drawer-action-bar">
+          <button className="button" onClick={() => viewTimeline(p.port)}>
+            <History size={14} />
+            View Timeline
+          </button>
           <button className="button primary" onClick={open}>
             <ExternalLink size={14} />
             Open in browser

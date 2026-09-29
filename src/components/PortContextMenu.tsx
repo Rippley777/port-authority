@@ -1,7 +1,9 @@
+import { useOpenTimeline } from "../features/timeline/useTimeline";
 import { ProjectActions } from "../features/projects/ProjectActions";
 import {
   AlertCircle,
   Copy,
+  History,
   ExternalLink,
   FolderOpen,
   RotateCw,
@@ -34,6 +36,7 @@ export function PortContextMenu({
   requestAction,
   inspect,
 }: Props) {
+  const viewTimeline = useOpenTimeline();
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -87,6 +90,14 @@ export function PortContextMenu({
           <div className="menu-separator" />
         </>
       )}
+      <MenuItem
+        icon={History}
+        label="View Timeline"
+        onClick={() => {
+          viewTimeline(menu.entry.port);
+          setMenu(null);
+        }}
+      />
       <MenuItem
         icon={AlertCircle}
         label="Inspect Process"
