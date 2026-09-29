@@ -6,6 +6,7 @@ import {
   History,
   LayoutDashboard,
   Network,
+  Radar,
   Search,
   Settings2,
   ShieldCheck,
@@ -19,6 +20,7 @@ interface Props {
   page: Page;
   navigate: (page: Page) => void;
   count: number;
+  conflicts: number;
   favorites: number;
   paused: boolean;
   failed: boolean;
@@ -30,6 +32,7 @@ export function Sidebar({
   page,
   navigate,
   count,
+  conflicts,
   favorites,
   paused,
   failed,
@@ -43,6 +46,7 @@ export function Sidebar({
     { name: "Processes", icon: Terminal },
     { name: "Favorites", icon: Star },
     { name: "History", icon: History },
+    { name: "Conflict Autopilot", icon: Radar },
   ] as const;
   return (
     <aside className="sidebar">
@@ -75,7 +79,10 @@ export function Sidebar({
             onClick={() => navigate(name)}
           >
             <Icon size={18} strokeWidth={1.7} />
-            <span>{name}</span>
+            <span>{name === "Conflict Autopilot" ? "Autopilot" : name}</span>
+            {name === "Conflict Autopilot" && conflicts > 0 && (
+              <span className="nav-count conflict-count">{conflicts}</span>
+            )}
             {name === "Ports" && <span className="nav-count">{count}</span>}
             {name === "Favorites" && favorites > 0 && (
               <span className="nav-count">{favorites}</span>

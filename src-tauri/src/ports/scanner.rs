@@ -7,6 +7,7 @@ use sysinfo::{Pid, ProcessesToUpdate, System, Users};
 pub struct Scanner {
     system: System,
     users: Users,
+    observed: HashSet<(u32, u64)>,
 }
 impl Default for Scanner {
     fn default() -> Self {
@@ -18,7 +19,21 @@ impl Scanner {
         Self {
             system: System::new(),
             users: Users::new_with_refreshed_list(),
+            observed: HashSet::new(),
         }
+    }
+    pub fn scan_fresh(&mut self) -> Result<Vec<PortEntry>, String> {
+        self.system = System::new();
+        self.scan()
+    }
+    pub fn observed_identities(&self) -> HashSet<(u32, u64)> {
+        self.observed.clone()
+    }
+    pub fn was_observed(&self, entry: &PortEntry) -> bool {
+        entry
+            .pid
+            .zip(entry.started_at)
+            .is_some_and(|identity| self.observed.contains(&identity))
     }
     pub fn scan(&mut self) -> Result<Vec<PortEntry>, String> {
         let sockets: Vec<_> = platform::sockets()?
@@ -99,6 +114,11 @@ impl Scanner {
         }
         entries.sort_by(|a, b| a.port.cmp(&b.port).then_with(|| a.id.cmp(&b.id)));
         entries.dedup_by(|a, b| a.id == b.id);
+        if self.observed.len() > 4096 {
+            self.observed.clear();
+        }
+        self.observed
+            .extend(entries.iter().filter_map(|e| e.pid.zip(e.started_at)));
         Ok(entries)
     }
 }

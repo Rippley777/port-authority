@@ -1,3 +1,8 @@
+import { useAutopilot } from "./hooks/useAutopilot";
+import {
+  AutopilotPage,
+  ConflictBanner,
+} from "./components/autopilot/AutopilotPage";
 import { PortContextMenu } from "./components/PortContextMenu";
 import { OpenServiceDialog } from "./components/OpenServiceDialog";
 import { ConfirmProcessDialog } from "./components/ConfirmProcessDialog";
@@ -28,6 +33,7 @@ import { useWorkspace } from "./hooks/useWorkspace";
 import { desktop } from "./lib/api";
 import type { Page } from "./lib/types";
 const descriptions: Record<Page, string> = {
+  "Conflict Autopilot": "Port conflicts, with a clear next step.",
   Ports: "Your local ports. A little less mystery.",
   Processes: "The processes behind your local services.",
   Overview: "A little clarity for your local environment.",
@@ -95,12 +101,18 @@ export default function App() {
     favoriteAvailable,
     isTablePage,
   } = useWorkspace();
+  const autopilot = useAutopilot(refresh);
   return (
     <div className="app-shell">
       <Sidebar
         page={page}
         navigate={navigate}
         count={ports.length}
+        conflicts={
+          autopilot.snapshot?.conflicts.filter((c) =>
+            ["detected", "force_required", "failed"].includes(c.status),
+          ).length ?? 0
+        }
         favorites={favorites.length}
         paused={paused}
         failed={!!error}
@@ -125,36 +137,38 @@ export default function App() {
               <p>{descriptions[page]}</p>
             </div>
             <div className="heading-actions">
-              {page !== "Settings" && page !== "History" && (
-                <>
-                  <button
-                    className={`live-control ${paused || error ? "is-paused" : ""}`}
-                    onClick={() => setPaused((p) => !p)}
-                    aria-label={
-                      paused ? "Resume live updates" : "Pause live updates"
-                    }
-                    title={
-                      paused ? "Resume live updates" : "Pause live updates"
-                    }
-                  >
-                    <span className="status-dot" />
-                    {scanningStatus}
-                    <span className="live-divider" />
-                    {paused ? <Play size={12} /> : <Pause size={12} />}
-                  </button>
-                  <button
-                    className="button refresh-button"
-                    onClick={() => {
-                      void refresh();
-                    }}
-                    disabled={scanning}
-                    title="Refresh ports (⌘R)"
-                  >
-                    <RefreshCw className={scanning ? "spin" : ""} size={14} />
-                    Refresh
-                  </button>
-                </>
-              )}
+              {page !== "Settings" &&
+                page !== "History" &&
+                page !== "Conflict Autopilot" && (
+                  <>
+                    <button
+                      className={`live-control ${paused || error ? "is-paused" : ""}`}
+                      onClick={() => setPaused((p) => !p)}
+                      aria-label={
+                        paused ? "Resume live updates" : "Pause live updates"
+                      }
+                      title={
+                        paused ? "Resume live updates" : "Pause live updates"
+                      }
+                    >
+                      <span className="status-dot" />
+                      {scanningStatus}
+                      <span className="live-divider" />
+                      {paused ? <Play size={12} /> : <Pause size={12} />}
+                    </button>
+                    <button
+                      className="button refresh-button"
+                      onClick={() => {
+                        void refresh();
+                      }}
+                      disabled={scanning}
+                      title="Refresh ports (⌘R)"
+                    >
+                      <RefreshCw className={scanning ? "spin" : ""} size={14} />
+                      Refresh
+                    </button>
+                  </>
+                )}
               {page === "Favorites" && (
                 <button
                   className="button primary"
@@ -166,6 +180,19 @@ export default function App() {
               )}
             </div>
           </div>
+          {page !== "Conflict Autopilot" && (
+            <ConflictBanner
+              controller={autopilot}
+              open={() => navigate("Conflict Autopilot")}
+            />
+          )}
+          {page === "Conflict Autopilot" && (
+            <AutopilotPage
+              controller={autopilot}
+              inspect={setSelected}
+              copy={copy}
+            />
+          )}
           {error && (
             <div className="error-banner" role="alert">
               <AlertCircle size={18} />

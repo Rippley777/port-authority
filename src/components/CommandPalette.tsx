@@ -30,6 +30,11 @@ export function CommandPalette({
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const commands = [
+    {
+      name: "Open Conflict Autopilot",
+      icon: RefreshCw,
+      run: () => navigate("Conflict Autopilot"),
+    },
     { name: "Refresh ports", icon: RefreshCw, shortcut: "⌘ R", run: refresh },
     { name: "Show favorites", icon: Star, run: () => navigate("Favorites") },
     {

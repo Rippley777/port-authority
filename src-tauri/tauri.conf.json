@@ -31,6 +31,9 @@
     "targets": "all",
     "category": "DeveloperTool",
     "shortDescription": "Know what's listening.",
-    "icon": ["icons/icon.png", "icons/icon.icns", "icons/icon.ico"]
+    "icon": ["icons/icon.png", "icons/icon.icns", "icons/icon.ico"],
+    "resources": {
+      "../shell/port-authority.sh": "shell/port-authority.sh"
+    }
   }
 }

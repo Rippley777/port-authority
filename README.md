@@ -37,6 +37,12 @@ npm run tauri build -- --debug --bundles app
 
 Quit any separately started Vite server on port 1420 before running `npm run desktop`, which starts its own frontend server.
 
+## Conflict Autopilot
+
+Opt-in bash/zsh integration detects failed commands with occupied-port errors and offers guarded **Kill & Retry**, **Use another port**, **Inspect**, and captured **Restart Owner** actions. Open **Autopilot** in the desktop sidebar to enable it and copy the setup for your shell. No startup files are edited.
+
+See [Conflict Autopilot](docs/conflict-autopilot.md) for setup, safety policy, supported command adapters, and lifecycle limits. The browser preview includes labeled development-server, infrastructure, and force-escalation simulations.
+
 ## What works
 
 - Native IPv4/IPv6 socket discovery, process/PID association, and process details.
@@ -69,6 +75,8 @@ src-tauri/src/
   process/           Cached metadata policy and guarded process controller
   platform/          Native discovery adapter, Unix and Windows termination
   commands/          Thin, asynchronous Tauri command adapters
+  autopilot/         Conflict detection, classification, capture, recovery, and private IPC
+shell/               Optional bash/zsh integration
 ```
 
 The discovery and control modules do not depend on Tauri. The desktop commands move blocking work to worker threads. Socket discovery uses [netstat2](https://docs.rs/netstat2/0.11.2/netstat2/); process inspection uses [sysinfo](https://docs.rs/sysinfo/0.33.1/sysinfo/). No discovery shell commands are spawned. macOS uses libproc, Linux uses netlink/procfs, and Windows uses IP Helper APIs through the shared socket adapter. Platform-specific process control stays in `platform/`.
@@ -91,7 +99,7 @@ Windows has no universal graceful signal for arbitrary processes. Normal Kill re
 
 “Available” means no matching socket was visible in the most recent successful scan. It is not a reservation or a guarantee that an immediate bind will succeed; OS permissions can limit visibility. Failed scans never produce an availability claim. Paused lookups explicitly refer to the last scan.
 
-Restart is intentionally disabled with an explanation: executable, arguments, and working directory alone cannot reproduce a process’s environment, inherited handles, or supervisor. Safe restart requires a later explicit launch-management feature. Startup registration is visibly unavailable; System theme currently uses the dark appearance. The initial package is unsigned/unnotarized. No CLI is implemented.
+The general process drawer keeps restart disabled for observed processes: executable, arguments, and working directory alone cannot reproduce the environment or supervisor. Conflict Autopilot can restart owners it actually launched from a complete captured context. Startup registration is visibly unavailable; System theme currently uses the dark appearance. The initial package is unsigned/unnotarized. There is no general-purpose CLI; the executable provides only the dedicated shell-capture entry point used by `pa`.
 
 ## Verify
 
@@ -99,6 +107,7 @@ Restart is intentionally disabled with an explanation: executable, arguments, an
 npm run build
 npm run lint
 npm test
+npm run test:shell
 npx playwright install chromium
 npm run test:e2e
 cargo fmt --manifest-path src-tauri/Cargo.toml --check

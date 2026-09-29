@@ -21,6 +21,7 @@ export interface PortEntry {
   permissionLimited: boolean;
 }
 export type Page =
+  | "Conflict Autopilot"
   | "Overview"
   | "Ports"
   | "Processes"

@@ -2651,12 +2651,14 @@ dependencies = [
  "libc",
  "netstat2",
  "open",
+ "regex",
  "serde",
  "serde_json",
  "sysinfo",
  "tauri",
  "tauri-build",
  "tauri-plugin-clipboard-manager",
+ "uuid",
  "windows-sys 0.61.2",
 ]
 

@@ -14,7 +14,8 @@
     "desktop": "tauri dev",
     "desktop:build": "tauri build",
     "format": "prettier --write src tests *.ts *.json *.html",
-    "format:check": "prettier --check src tests *.ts *.json *.html"
+    "format:check": "prettier --check src tests *.ts *.json *.html",
+    "test:shell": "node --test tests/shell.test.mjs"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.5",
