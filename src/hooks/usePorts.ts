@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { parseHistory } from "../lib/persistence";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { scanPorts, desktop } from "../lib/api";
@@ -18,6 +19,66 @@ export function usePorts(settings: Settings) {
   const [lastScan, setLastScan] = useState<Date | null>(null);
   const previous = useRef<PortEntry[] | null>(null);
   const busy = useRef(false);
+  useEffect(() => {
+    if (!desktop) return;
+    let disposed = false;
+    const subscription = listen<PortEntry[]>(
+      "projects-resolved",
+      ({ payload }) => {
+        if (disposed) return;
+        const updates = new Map(payload.map((p) => [p.id, p]));
+        const enrich = (current: PortEntry[]) =>
+          current.map((p) => {
+            const next = updates.get(p.id);
+            if (
+              !next ||
+              p.startedAt !== next.startedAt ||
+              p.cwd !== next.cwd ||
+              p.executable !== next.executable ||
+              JSON.stringify(p.command) !== JSON.stringify(next.command)
+            )
+              return p;
+            return {
+              ...p,
+              project: next.project,
+              serviceName: next.serviceName,
+            };
+          });
+        setHistory((history) => {
+          let changed = false;
+          const next = history.map((event) => {
+            if (
+              !event.processPid ||
+              !event.processStartedAt ||
+              event.projectName
+            )
+              return event;
+            const entry = payload.find(
+              (p) =>
+                p.pid === event.processPid &&
+                p.startedAt === event.processStartedAt &&
+                p.port === event.port &&
+                p.project,
+            );
+            if (!entry?.project) return event;
+            changed = true;
+            return {
+              ...event,
+              projectName: entry.project.name,
+              projectPath: entry.project.rootPath,
+            };
+          });
+          return changed ? next : history;
+        });
+        if (previous.current) previous.current = enrich(previous.current);
+        setPorts((old) => reconcile(old, enrich(old)));
+      },
+    ).catch(() => undefined);
+    return () => {
+      disposed = true;
+      void subscription.then((unlisten) => unlisten?.());
+    };
+  }, [setHistory]);
   const refresh = useCallback(async () => {
     if (busy.current) return;
     busy.current = true;
@@ -35,6 +96,10 @@ export function usePorts(settings: Settings) {
               time: Date.now(),
               port: p.port,
               process: p.process,
+              processPid: p.pid,
+              processStartedAt: p.startedAt,
+              projectName: p.project?.name,
+              projectPath: p.project?.rootPath,
               type: "started",
             });
         for (const [id, p] of before)
@@ -44,6 +109,10 @@ export function usePorts(settings: Settings) {
               time: Date.now(),
               port: p.port,
               process: p.process,
+              processPid: p.pid,
+              processStartedAt: p.startedAt,
+              projectName: p.project?.name,
+              projectPath: p.project?.rootPath,
               type: "stopped",
             });
         if (events.length)

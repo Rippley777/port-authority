@@ -1,3 +1,4 @@
+import { ProjectActions } from "../features/projects/ProjectActions";
 import {
   AlertCircle,
   Copy,
@@ -22,6 +23,7 @@ interface Props {
   copy: (s: string, l: string) => Promise<void>;
   reveal: (p: PortEntry) => Promise<void>;
   requestAction: (p: PortEntry, a: ProcessAction) => void;
+  inspect: (p: PortEntry) => void;
 }
 export function PortContextMenu({
   menu,
@@ -30,9 +32,16 @@ export function PortContextMenu({
   copy,
   reveal,
   requestAction,
+  inspect,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    const el = ref.current;
+    if (el) {
+      const bounds = el.getBoundingClientRect();
+      el.style.top = `${Math.max(8, Math.min(menu.y, window.innerHeight - bounds.height - 8))}px`;
+      el.style.left = `${Math.max(8, Math.min(menu.x, window.innerWidth - bounds.width - 8))}px`;
+    }
     ref.current
       ?.querySelector<HTMLButtonElement>("button:not(:disabled)")
       ?.focus();
@@ -66,8 +75,26 @@ export function PortContextMenu({
     >
       <div className="context-heading">
         <span className="mono">:{menu.entry.port}</span>
-        <span>{menu.entry.process}</span>
+        <span>{menu.entry.project?.name ?? menu.entry.process}</span>
       </div>
+      {menu.entry.project && (
+        <>
+          <ProjectActions
+            project={menu.entry.project}
+            menu
+            done={() => setMenu(null)}
+          />
+          <div className="menu-separator" />
+        </>
+      )}
+      <MenuItem
+        icon={AlertCircle}
+        label="Inspect Process"
+        onClick={() => {
+          inspect(menu.entry);
+          setMenu(null);
+        }}
+      />
       <MenuItem
         icon={ExternalLink}
         label="Open in browser"

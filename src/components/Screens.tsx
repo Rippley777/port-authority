@@ -1,3 +1,4 @@
+import { ProjectPreferences } from "../features/projects/ProjectPreferences";
 import {
   ArrowDownLeft,
   ArrowRight,
@@ -200,7 +201,7 @@ export function CheckPort({
               >
                 <ServiceIcon entry={p} />
                 <div>
-                  <strong>{p.process}</strong>
+                  <strong>{p.project?.name ?? p.process}</strong>
                   <small>
                     {p.address} · PID {p.pid ?? "unavailable"}
                   </small>
@@ -267,7 +268,7 @@ export function Overview({
             >
               <ServiceIcon entry={p} />
               <span>
-                <strong>{p.process}</strong>
+                <strong>{p.project?.name ?? p.process}</strong>
                 <small>{service(p).label}</small>
               </span>
               <span className="mono">:{p.port}</span>
@@ -364,7 +365,9 @@ export function HistoryScreen({
               </time>
               <span className={`event-dot ${event.type}`} />
               <div>
-                <strong>{event.process}</strong>{" "}
+                <strong title={event.projectPath}>
+                  {event.projectName ?? event.process}
+                </strong>{" "}
                 {event.type === "started"
                   ? "started listening on"
                   : "stopped listening on"}{" "}
@@ -406,6 +409,7 @@ export function SettingsScreen({
   }
   return (
     <div className="settings-stack">
+      <ProjectPreferences settings={settings} change={change} />
       <section className="panel settings-panel">
         <h3>Monitoring</h3>
         <SettingRow

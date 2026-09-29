@@ -1,3 +1,4 @@
+import { sampleProjects } from "../features/projects/demo";
 import type { PortEntry } from "./types";
 const now = Math.floor(Date.now() / 1000);
 function entry(
@@ -87,3 +88,41 @@ export const demoPorts: PortEntry[] = [
     user: "developer",
   }),
 ];
+
+for (const p of demoPorts) {
+  const index = [5173, 8080].includes(p.port)
+    ? 0
+    : [3000, 3001].includes(p.port)
+      ? 1
+      : p.port === 8000
+        ? 2
+        : -1;
+  if (index >= 0) {
+    p.project = sampleProjects[index];
+    p.cwd = p.project.rootPath;
+    p.serviceName =
+      p.port === 5173
+        ? "Vite"
+        : p.port === 3000
+          ? "Next.js"
+          : p.port === 8080
+            ? "Rust API"
+            : p.port === 8000
+              ? "Python"
+              : "Node.js";
+  }
+}
+
+for (const p of demoPorts) {
+  if (!p.project)
+    p.serviceName =
+      p.process === "postgres"
+        ? "PostgreSQL"
+        : p.process === "redis-server"
+          ? "Redis"
+          : p.process === "mongod"
+            ? "MongoDB"
+            : p.process === "com.docker.backend"
+              ? "Docker"
+              : p.process;
+}

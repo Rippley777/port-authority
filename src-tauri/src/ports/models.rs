@@ -2,6 +2,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PortEntry {
+    #[serde(default)]
+    pub project: Option<crate::projects::models::ProjectIdentity>,
+    #[serde(default)]
+    pub service_name: Option<String>,
     pub id: String,
     pub port: u16,
     pub protocol: String,

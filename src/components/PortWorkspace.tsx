@@ -127,7 +127,7 @@ export function PortWorkspace({
             <input
               ref={searchRef}
               aria-label="Search ports"
-              placeholder="Search ports, processes, or PIDs…"
+              placeholder="Search projects, ports, or PIDs…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />

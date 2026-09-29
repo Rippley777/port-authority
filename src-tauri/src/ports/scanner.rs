@@ -97,6 +97,7 @@ impl Scanner {
                     .unwrap_or(true)
                     || system;
                 entries.push(PortEntry {
+                    project: None, service_name: None,
                     id: format!("{protocol}:{address}:{port}:{}", pid.map(|p| p.to_string()).unwrap_or_default()),
                     port, protocol: protocol.into(), address: address.to_string(), pid, process: name,
                     command: process.map(|p| p.cmd().iter().map(|a| a.to_string_lossy().into_owned()).collect()).unwrap_or_default(),

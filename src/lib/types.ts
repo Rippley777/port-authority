@@ -1,5 +1,8 @@
+import type { ProjectIdentity } from "../features/projects/types";
 export type Protocol = "TCP" | "UDP";
 export interface PortEntry {
+  project?: ProjectIdentity | null;
+  serviceName?: string | null;
   id: string;
   port: number;
   protocol: Protocol;
@@ -22,6 +25,7 @@ export interface PortEntry {
 }
 export type Page =
   | "Conflict Autopilot"
+  | "Projects"
   | "Overview"
   | "Ports"
   | "Processes"
@@ -40,6 +44,10 @@ export type Filter =
   | "User";
 export type SortKey = "port" | "protocol" | "process" | "pid" | "startedAt";
 export interface HistoryEvent {
+  processPid?: number | null;
+  processStartedAt?: number | null;
+  projectName?: string;
+  projectPath?: string;
   id: string;
   time: number;
   port: number;
@@ -47,6 +55,9 @@ export interface HistoryEvent {
   type: "started" | "stopped";
 }
 export interface Settings {
+  preferredEditor: string;
+  customEditor: string;
+  preferredTerminal: string;
   refreshInterval: number;
   showSystem: boolean;
   confirmKill: boolean;
@@ -56,6 +67,9 @@ export interface Settings {
   theme: "Dark" | "System";
 }
 export const defaultSettings: Settings = {
+  preferredEditor: "auto",
+  customEditor: "",
+  preferredTerminal: "auto",
   refreshInterval: 2,
   showSystem: true,
   confirmKill: true,

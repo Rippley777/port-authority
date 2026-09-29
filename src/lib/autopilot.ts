@@ -158,6 +158,7 @@ export async function actOnConflict(
         port: port ?? c.port,
         startedAt: Math.floor(Date.now() / 1000),
         cwd: c.cwd,
+        project: null,
       }
     : null;
   c.output = `> npm run dev\nVITE ready\nLocal: http://localhost:${port}/`;
@@ -176,7 +177,9 @@ export async function simulateConflict(
   const owner = {
     ...source,
     id: `autopilot-${source.id}`,
-    cwd: "/Users/developer/Code/old-dashboard",
+    cwd: database
+      ? "/usr/local/var/postgres"
+      : (source.project?.rootPath ?? source.cwd),
     startedAt: Math.floor(Date.now() / 1000) - 11640,
   };
   preview.enabled = true;
@@ -203,7 +206,7 @@ export async function simulateConflict(
               "This owner belongs to another project. Confirm it is safe to interrupt.",
               "Possibly left over: running for over three hours in another project. Age alone is not proof that it is stale.",
             ],
-        project: "old-dashboard",
+        project: owner.project?.name ?? null,
         projectPath: owner.cwd,
         differentProject: true,
         previouslyObserved: true,

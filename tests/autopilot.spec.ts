@@ -17,7 +17,14 @@ test("another project requires confirmation and inspection uses the existing dra
   await expect(
     page.getByRole("heading", { name: "Port 5173 is already occupied" }),
   ).toBeVisible();
-  await expect(page.locator(".conflict-owner")).toContainText("old-dashboard");
+  await expect(page.locator(".conflict-owner")).toContainText("Shipwreck");
+  await page
+    .getByRole("button", { name: "Open Shipwreck", exact: true })
+    .click();
+  await expect(
+    page.getByRole("dialog", { name: "Project details for Shipwreck" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Close project details" }).click();
   await page.getByRole("button", { name: "Inspect", exact: true }).click();
   await expect(
     page.getByRole("dialog", { name: "Process details for vite" }),
@@ -26,7 +33,7 @@ test("another project requires confirmation and inspection uses the existing dra
   await page.getByRole("button", { name: "Kill & Retry", exact: true }).click();
   await expect(
     page.getByRole("dialog", { name: "Confirm conflict recovery" }),
-  ).toContainText("/Users/developer/Code/old-dashboard");
+  ).toContainText("/Users/developer/Code/shipwreck");
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.locator(".recovery-steps")).toHaveCount(0);
   await page.getByRole("button", { name: "Kill & Retry", exact: true }).click();

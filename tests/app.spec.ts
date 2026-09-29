@@ -79,7 +79,7 @@ test("termination requires confirmation and records history in preview", async (
     .getByRole("button", { name: "History", exact: true })
     .click();
   await expect(page.locator(".history-list")).toContainText(
-    "vite stopped listening on :5173",
+    "Shipwreck stopped listening on :5173",
   );
   await page.getByRole("button", { name: "Clear history" }).click();
   await expect(

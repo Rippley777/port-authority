@@ -6,19 +6,8 @@ pub fn project_root(cwd: &str) -> PathBuf {
     let original = Path::new(cwd)
         .canonicalize()
         .unwrap_or_else(|_| PathBuf::from(cwd));
-    for path in original.ancestors().take(12) {
-        if [
-            "package.json",
-            ".git",
-            "Cargo.toml",
-            "pyproject.toml",
-            "go.mod",
-        ]
-        .iter()
-        .any(|name| path.join(name).exists())
-        {
-            return path.to_path_buf();
-        }
+    if let Some((root, _)) = crate::projects::resolver::find_root(&original) {
+        return root;
     }
     original
 }

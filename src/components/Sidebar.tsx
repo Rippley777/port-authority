@@ -1,4 +1,5 @@
 import {
+  FolderGit2,
   Anchor,
   ArrowUpRight,
   CircleHelp,
@@ -44,6 +45,7 @@ export function Sidebar({
     { name: "Overview", icon: LayoutDashboard },
     { name: "Ports", icon: Network },
     { name: "Processes", icon: Terminal },
+    { name: "Projects", icon: FolderGit2 },
     { name: "Favorites", icon: Star },
     { name: "History", icon: History },
     { name: "Conflict Autopilot", icon: Radar },

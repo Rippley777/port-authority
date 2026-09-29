@@ -7,11 +7,24 @@ pub type AutopilotState = Arc<Autopilot>;
 #[tauri::command]
 pub async fn autopilot_snapshot(
     state: tauri::State<'_, AutopilotState>,
+    projects: tauri::State<'_, Arc<crate::projects::cache::ProjectEngine>>,
 ) -> Result<Snapshot, String> {
     let engine = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || engine.snapshot())
-        .await
-        .map_err(|e| e.to_string())?
+    let projects = projects.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut snapshot = engine.snapshot()?;
+        for conflict in &mut snapshot.conflicts {
+            if let Some(owner) = &mut conflict.owner {
+                projects.enrich(std::slice::from_mut(owner), false);
+            }
+            if let Some(listener) = &mut conflict.listener {
+                projects.enrich(std::slice::from_mut(listener), false);
+            }
+        }
+        Ok(snapshot)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 pub async fn autopilot_enable(

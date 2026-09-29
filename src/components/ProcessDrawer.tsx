@@ -1,3 +1,4 @@
+import { ProjectSection } from "../features/projects/ProjectsScreen";
 import {
   Copy,
   ExternalLink,
@@ -67,8 +68,10 @@ export function ProcessDrawer({
         <div className="drawer-identity">
           <ServiceIcon entry={p} large />
           <div>
-            <h2>{p.process}</h2>
-            <p>{service(p).label}</p>
+            <h2>{p.project?.name ?? p.process}</h2>
+            <p>
+              {p.serviceName ?? service(p).label} · {p.process}
+            </p>
           </div>
           <button
             className={`star-button ${favorite ? "is-favorite" : ""}`}
@@ -78,6 +81,7 @@ export function ProcessDrawer({
             <Star size={19} />
           </button>
         </div>
+        {p.project && <ProjectSection project={p.project} />}
         <div className="drawer-status">
           <span className="listening">
             <span className="status-dot" />

@@ -1,3 +1,4 @@
+import { editorNames, terminalNames } from "../features/projects/types";
 import { defaultSettings } from "./types";
 import type { HistoryEvent, Settings } from "./types";
 const record = (value: unknown): value is Record<string, unknown> =>
@@ -5,6 +6,20 @@ const record = (value: unknown): value is Record<string, unknown> =>
 export function parseSettings(value: unknown): Settings {
   if (!record(value)) return defaultSettings;
   return {
+    preferredEditor:
+      typeof value.preferredEditor === "string" &&
+      Object.hasOwn(editorNames, value.preferredEditor)
+        ? value.preferredEditor
+        : "auto",
+    preferredTerminal:
+      typeof value.preferredTerminal === "string" &&
+      Object.hasOwn(terminalNames, value.preferredTerminal)
+        ? value.preferredTerminal
+        : "auto",
+    customEditor:
+      typeof value.customEditor === "string"
+        ? value.customEditor.slice(0, 4096)
+        : "",
     refreshInterval:
       typeof value.refreshInterval === "number" &&
       [1, 2, 5, 10].includes(value.refreshInterval)
@@ -51,6 +66,8 @@ export function parseHistory(value: unknown): HistoryEvent[] {
         e.port > 0 &&
         e.port <= 65535 &&
         typeof e.process === "string" &&
+        (e.projectName === undefined || typeof e.projectName === "string") &&
+        (e.projectPath === undefined || typeof e.projectPath === "string") &&
         (e.type === "started" || e.type === "stopped"),
     )
     .slice(0, 1000);

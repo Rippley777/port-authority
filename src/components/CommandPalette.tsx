@@ -1,3 +1,5 @@
+import { useProjectContext } from "../features/projects/useProjects";
+import { projectSearch } from "../features/projects/types";
 import {
   ArrowRight,
   CornerDownLeft,
@@ -27,9 +29,11 @@ export function CommandPalette({
   select: (p: PortEntry) => void;
   search: (value: string) => void;
 }) {
+  const projects = useProjectContext();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const commands = [
+    { name: "Show projects", icon: Search, run: () => navigate("Projects") },
     {
       name: "Open Conflict Autopilot",
       icon: RefreshCw,
@@ -55,13 +59,61 @@ export function CommandPalette({
       )
         .slice(0, 5)
         .map((p) => ({
-          name: `${p.port}  ·  ${p.process}`,
+          name: `${p.port}  ·  ${p.project?.name ?? p.process} · ${p.serviceName ?? p.process}`,
           icon: ArrowRight,
           shortcut: p.protocol,
           run: () => select(p),
         }))
     : [];
-  const options = [
+  const projectCommands = projects.projects
+    .flatMap(({ identity: p }) =>
+      [
+        {
+          name: `Open ${p.name} in ${projects.editorName}`,
+          icon: ArrowRight,
+          run: () => void projects.action(p, "editor"),
+        },
+        {
+          name: `Open ${p.name} terminal`,
+          icon: ArrowRight,
+          run: () => void projects.action(p, "terminal"),
+        },
+        ...(p.repository?.webUrl
+          ? [
+              {
+                name: `Open ${p.name} repository`,
+                icon: ArrowRight,
+                run: () => void projects.action(p, "repository"),
+              },
+            ]
+          : []),
+        {
+          name: `Reveal ${p.name}`,
+          icon: ArrowRight,
+          run: () => void projects.action(p, "reveal"),
+        },
+        {
+          name: `Show ${p.name} ports`,
+          icon: Search,
+          run: () => projects.showPorts(p),
+        },
+      ]
+        .filter(
+          (command) =>
+            query &&
+            (command.name.toLowerCase().includes(query.toLowerCase()) ||
+              projectSearch(p).includes(query.toLowerCase())),
+        )
+        .map((command) => ({ ...command, shortcut: p.displayPath })),
+    )
+    .slice(0, 40);
+  const options: {
+    name: string;
+    icon: typeof Search;
+    shortcut?: string;
+    run: () => void;
+  }[] = [
+    ...projectCommands,
     ...matched,
     ...commands.filter((c) =>
       c.name.toLowerCase().includes(query.toLowerCase()),
@@ -84,7 +136,7 @@ export function CommandPalette({
         <Search size={20} />
         <input
           aria-label="Search commands and ports"
-          placeholder="Find a port, process, or command…"
+          placeholder="Find a project, port, or command…"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -116,7 +168,7 @@ export function CommandPalette({
         </div>
         {options.map((c, i) => (
           <button
-            key={c.name}
+            key={`${c.name}:${c.shortcut ?? ""}`}
             className={`palette-option ${i === active ? "selected" : ""}`}
             onMouseEnter={() => setActive(i)}
             onClick={() => run(i)}

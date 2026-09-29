@@ -1,3 +1,4 @@
+import { projectSearch } from "../features/projects/types";
 import type { Filter, PortEntry, SortKey } from "./types";
 export const isLocal = (address: string) =>
   address === "::1" || address === "localhost" || address.startsWith("127.");
@@ -70,7 +71,7 @@ export function filterPorts(
     if (exact !== null) return p.port === exact;
     return (
       !search ||
-      `${p.port} ${p.pid ?? ""} ${p.process} ${p.address} ${displayAddress(p.address)} ${p.command.join(" ")}`
+      `${p.port} ${p.pid ?? ""} ${p.process} ${p.address} ${displayAddress(p.address)} ${p.command.join(" ")} ${p.project ? projectSearch(p.project) : ""} ${p.serviceName ?? ""}`
         .toLowerCase()
         .includes(search)
     );
@@ -82,8 +83,14 @@ export function sortPorts(
   ascending: boolean,
 ) {
   return [...entries].sort((a, b) => {
-    const x = a[key] ?? 0,
-      y = b[key] ?? 0;
+    const x =
+        (key === "process"
+          ? (a.project?.name ?? a.serviceName ?? a.process)
+          : a[key]) ?? 0,
+      y =
+        (key === "process"
+          ? (b.project?.name ?? b.serviceName ?? b.process)
+          : b[key]) ?? 0;
     const result =
       typeof x === "string" && typeof y === "string"
         ? x.localeCompare(y)

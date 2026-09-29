@@ -1,3 +1,5 @@
+import { ProjectBadge } from "../../features/projects/ProjectBadge";
+import { useProjectContext } from "../../features/projects/useProjects";
 import {
   AlertTriangle,
   ArrowRight,
@@ -30,6 +32,11 @@ interface Props {
   ) => Promise<void>;
 }
 export function ConflictCard({ conflict: c, busy, inspect, run }: Props) {
+  const projects = useProjectContext();
+  const ownerProject = c.owner?.project;
+  const failedProject = projects.projects.find(
+    (p) => p.identity.rootPath === c.cwd,
+  )?.identity;
   const [confirmation, setConfirmation] = useState<ConflictAction | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
   const close = useCallback(() => {
@@ -103,13 +110,29 @@ export function ConflictCard({ conflict: c, busy, inspect, run }: Props) {
       <div className="conflict-command">
         <Terminal size={15} />
         <code>{commandText(c.command)}</code>
-        <span title={c.cwd}>{c.project}</span>
+        <span title={c.cwd}>{failedProject?.name ?? c.project}</span>
       </div>
+      {ownerProject && (
+        <p className="conflict-project-context">
+          {failedProject?.name ?? c.project} couldn’t start on :{c.port}.{" "}
+          <strong>{ownerProject.name}</strong> is already using it.{" "}
+          <button
+            className="text-button"
+            onClick={() => projects.open(ownerProject)}
+          >
+            Open {ownerProject.name}
+          </button>
+        </p>
+      )}
       {c.owner ? (
         <div className="conflict-owner">
           <ServiceIcon entry={c.owner} large />
           <div>
-            <strong>{c.safety.project ?? "Project unavailable"}</strong>
+            {c.owner.project ? (
+              <ProjectBadge entry={c.owner} />
+            ) : (
+              <strong>{c.safety.project ?? "Project unavailable"}</strong>
+            )}
             <p>
               {c.owner.process} <span>·</span> PID {c.owner.pid} <span>·</span>{" "}
               running {uptime(c.owner.startedAt)}

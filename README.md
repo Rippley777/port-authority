@@ -37,6 +37,14 @@ npm run tauri build -- --debug --bundles app
 
 Quit any separately started Vite server on port 1420 before running `npm run desktop`, which starts its own frontend server.
 
+## Project Awareness
+
+Ports and processes now show the project behind each service. The Rust resolver uses working directories, nearby manifests, executable paths, and parent metadata; it enriches the UI asynchronously without holding up socket scans. Open **Projects** to group running services, pin workspaces, revisit recent projects, and launch your preferred editor or terminal.
+
+Project names, repository paths, and `~/…` paths are searchable. Project details and actions are shared by the ports table, process drawer, context menu, command palette, and Conflict Autopilot. Configure applications in **Settings → Project applications**.
+
+See [Project Awareness](docs/project-awareness.md) for resolution rules, privacy, Git caching, platform actions, and limitations.
+
 ## Conflict Autopilot
 
 Opt-in bash/zsh integration detects failed commands with occupied-port errors and offers guarded **Kill & Retry**, **Use another port**, **Inspect**, and captured **Restart Owner** actions. Open **Autopilot** in the desktop sidebar to enable it and copy the setup for your shell. No startup files are edited.
@@ -70,18 +78,20 @@ src/
   components/        Table, drawer, dialogs, navigation, and secondary views
   hooks/             Monitoring, application state, validated persistence
   lib/               Typed bridge, pure filtering/reconciliation, preview fixtures
+  features/projects/ Shared identities, details, actions, grouped workspace
 src-tauri/src/
   ports/             Core scanner, serializable socket/process models
   process/           Cached metadata policy and guarded process controller
   platform/          Native discovery adapter, Unix and Windows termination
   commands/          Thin, asynchronous Tauri command adapters
   autopilot/         Conflict detection, classification, capture, recovery, and private IPC
+  projects/          Resolver, bounded manifests, Git metadata, cache, and application actions
 shell/               Optional bash/zsh integration
 ```
 
-The discovery and control modules do not depend on Tauri. The desktop commands move blocking work to worker threads. Socket discovery uses [netstat2](https://docs.rs/netstat2/0.11.2/netstat2/); process inspection uses [sysinfo](https://docs.rs/sysinfo/0.33.1/sysinfo/). No discovery shell commands are spawned. macOS uses libproc, Linux uses netlink/procfs, and Windows uses IP Helper APIs through the shared socket adapter. Platform-specific process control stays in `platform/`.
+The discovery and control modules do not depend on Tauri. The desktop commands move blocking work to worker threads. Socket discovery uses [netstat2](https://docs.rs/netstat2/0.11.2/netstat2/); process inspection uses [sysinfo](https://docs.rs/sysinfo/0.33.1/sysinfo/). Socket discovery spawns no shell commands. Project enrichment separately uses bounded local Git subprocesses with explicit argument vectors. macOS uses libproc, Linux uses netlink/procfs, and Windows uses IP Helper APIs through the shared socket adapter. Platform-specific process control stays in `platform/`.
 
-A retained `sysinfo::System` caches slow-changing command/path/user metadata and provides CPU sampling across scans. The scanner refreshes relevant and cached process IDs, removes dead processes, and caps its cache at 4,096 entries. Scans never overlap in the UI. Full bounded snapshots cross IPC; the frontend reconciles unchanged row objects rather than resetting the table. Delta-only IPC and virtualization are future optimizations if profiling requires them.
+A retained `sysinfo::System` provides CPU sampling across scans. Command, executable, and working-directory metadata refresh with each scan so process changes cannot retain a stale project association. The scanner refreshes relevant and cached process IDs, removes dead processes, and caps its cache at 4,096 entries. Scans never overlap in the UI. Full bounded snapshots cross IPC; the frontend reconciles unchanged row objects rather than resetting the table. Delta-only IPC and virtualization are future optimizations if profiling requires them.
 
 Settings, favorites, and history use the app webview’s local storage with validation and safe defaults. History retains 500 events by default, configurable to 100 or 1,000. Disabling history clears stored events. There is no persistent process-command log. CPU is initially zero until a second scan; process uptime is the process age, not socket age.
 

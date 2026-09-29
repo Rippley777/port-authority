@@ -1,12 +1,18 @@
 use crate::{ports::models::PortEntry, ScannerState};
 #[tauri::command]
-pub async fn scan_ports(state: tauri::State<'_, ScannerState>) -> Result<Vec<PortEntry>, String> {
+pub async fn scan_ports(
+    state: tauri::State<'_, ScannerState>,
+    projects: tauri::State<'_, std::sync::Arc<crate::projects::cache::ProjectEngine>>,
+) -> Result<Vec<PortEntry>, String> {
     let scanner = state.inner().clone();
+    let projects = projects.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        scanner
+        let mut entries = scanner
             .lock()
             .map_err(|_| "Socket scanner is unavailable. Restart Port Authority.".to_string())?
-            .scan()
+            .scan()?;
+        projects.enrich(&mut entries, true);
+        Ok(entries)
     })
     .await
     .map_err(|e| format!("Socket scan interrupted: {e}"))?

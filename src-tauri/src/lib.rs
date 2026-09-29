@@ -1,5 +1,6 @@
 pub mod autopilot;
-use tauri::Manager;
+pub mod projects;
+use tauri::{Emitter, Manager};
 mod commands;
 pub mod platform;
 pub mod ports;
@@ -13,6 +14,14 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(Arc::new(Mutex::new(ports::scanner::Scanner::new())))
         .setup(|app| {
+            let projects = projects::cache::ProjectEngine::new(Some(
+                app.path().app_data_dir()?.join("recent-projects.json"),
+            ));
+            let handle = app.handle().clone();
+            projects.on_enriched(move |entries| {
+                let _ = handle.emit("projects-resolved", entries);
+            });
+            app.manage(projects);
             let scanner = app.state::<ScannerState>().inner().clone();
             let binary = std::env::current_exe()?;
             let mut script = app.path().resource_dir()?.join("shell/port-authority.sh");
@@ -39,6 +48,13 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::projects::projects_snapshot,
+            commands::projects::project_pin,
+            commands::projects::project_forget,
+            commands::projects::projects_refresh,
+            commands::projects::project_refresh,
+            commands::projects::project_applications,
+            commands::projects::project_action,
             commands::autopilot::autopilot_snapshot,
             commands::autopilot::autopilot_enable,
             commands::autopilot::autopilot_action,

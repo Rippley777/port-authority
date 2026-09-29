@@ -1,3 +1,4 @@
+import { ProjectBadge } from "../features/projects/ProjectBadge";
 import {
   ArrowDown,
   ArrowUp,
@@ -11,7 +12,7 @@ import {
   Star,
 } from "lucide-react";
 import type { MouseEvent } from "react";
-import { displayAddress, isHttp, service, uptime } from "../lib/ports";
+import { displayAddress, isHttp, uptime } from "../lib/ports";
 import type { PortEntry, SortKey } from "../lib/types";
 import { ServiceIcon } from "./ServiceIcon";
 interface Props {
@@ -45,10 +46,10 @@ export function PortTable(props: Props) {
   } = props;
   const headers: { label: string; key?: SortKey }[] = [
     { label: "PORT", key: "port" },
-    { label: "PROTOCOL", key: "protocol" },
-    { label: "ADDRESS" },
-    { label: "PROCESS", key: "process" },
+    { label: "PROJECT / SERVICE", key: "process" },
     { label: "PID", key: "pid" },
+    { label: "ADDRESS" },
+    { label: "PROTOCOL", key: "protocol" },
     { label: "STATUS" },
     { label: "UPTIME", key: "startedAt" },
     { label: "ACTIONS" },
@@ -83,17 +84,9 @@ export function PortTable(props: Props) {
         <span className="port-number">{p.port}</span>
       </td>
       <td>
-        <span className={`protocol ${p.protocol.toLowerCase()}`}>
-          {p.protocol}
-        </span>
-      </td>
-      <td className="address-cell" title={p.address}>
-        {displayAddress(p.address)}
-      </td>
-      <td>
         <div className="process-cell">
           <ServiceIcon entry={p} />
-          <span title={service(p).label}>{p.process}</span>
+          <ProjectBadge entry={p} />
           {p.system && (
             <Shield
               size={12}
@@ -104,6 +97,15 @@ export function PortTable(props: Props) {
         </div>
       </td>
       <td className="muted mono">{p.pid ?? "—"}</td>
+      <td className="address-cell" title={p.address}>
+        {displayAddress(p.address)}
+      </td>
+      <td>
+        <span className={`protocol ${p.protocol.toLowerCase()}`}>
+          {p.protocol}
+        </span>
+      </td>
+
       <td>
         <span className={`listening ${p.protocol === "UDP" ? "bound" : ""}`}>
           <span className="status-dot" />
@@ -168,10 +170,10 @@ export function PortTable(props: Props) {
         <colgroup>
           <col className="col-star" />
           <col className="col-port" />
-          <col className="col-protocol" />
-          <col className="col-address" />
           <col className="col-process" />
           <col className="col-pid" />
+          <col className="col-address" />
+          <col className="col-protocol" />
           <col className="col-status" />
           <col className="col-uptime" />
           <col className="col-actions" />
@@ -245,7 +247,7 @@ function GroupedRows({
     <>
       <tr className="group-header">
         <td colSpan={9}>
-          <span>{entries[0].process}</span>
+          <ProjectBadge entry={entries[0]} compact />
           <span className="muted mono">
             PID {entries[0].pid ?? "unavailable"}
           </span>
