@@ -1,0 +1,6 @@
+{
+  "identifier": "main",
+  "description": "Local main window only. Native operations are validated in Rust.",
+  "windows": ["main"],
+  "permissions": ["core:default", "clipboard-manager:allow-write-text"]
+}

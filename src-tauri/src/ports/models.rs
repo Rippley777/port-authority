@@ -1,0 +1,24 @@
+use serde::Serialize;
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PortEntry {
+    pub id: String,
+    pub port: u16,
+    pub protocol: String,
+    pub address: String,
+    pub pid: Option<u32>,
+    pub process: String,
+    pub command: Vec<String>,
+    pub executable: Option<String>,
+    pub cwd: Option<String>,
+    pub parent_pid: Option<u32>,
+    pub user: Option<String>,
+    pub started_at: Option<u64>,
+    pub memory: Option<u64>,
+    pub cpu: Option<f32>,
+    pub system: bool,
+    pub protected: bool,
+    pub restartable: bool,
+    pub restart_reason: String,
+    pub permission_limited: bool,
+}
