@@ -148,14 +148,15 @@ export function useWorkspace() {
   async function perform(entry: PortEntry, action: ProcessAction) {
     setActing(true);
     try {
-      await controlProcess(entry, action);
+      const result = await controlProcess(entry, action);
       setSelected(null);
       setConfirmation(null);
       await refresh();
       notify(
-        desktop
-          ? `${action === "force" ? "Force kill" : "Termination"} signal sent to ${entry.process} (${entry.pid})`
-          : `Preview: ${entry.process} stopped. No real process was affected.`,
+        result ??
+          (desktop
+            ? `${action === "force" ? "Force kill" : "Termination"} signal sent to ${entry.process} (${entry.pid})`
+            : `Preview: ${entry.process} stopped. No real process was affected.`),
       );
     } catch (e) {
       notify(String(e), true);
@@ -171,6 +172,7 @@ export function useWorkspace() {
     if (
       action === "force" ||
       action === "restart" ||
+      action === "relaunch" ||
       entry.system ||
       settings.confirmKill
     )

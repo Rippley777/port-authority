@@ -1,5 +1,6 @@
 pub mod autopilot;
 pub mod projects;
+pub mod recovery;
 pub mod timeline;
 use tauri::{Emitter, Manager};
 mod commands;
@@ -25,7 +26,7 @@ pub fn run() {
             projects.on_enriched(move |entries| {
                 let _ = handle.emit("projects-resolved", entries);
             });
-            app.manage(projects);
+            app.manage(projects.clone());
             let scanner = app.state::<ScannerState>().inner().clone();
             let binary = std::env::current_exe()?;
             let mut script = app.path().resource_dir()?.join("shell/port-authority.sh");
@@ -42,7 +43,15 @@ pub fn run() {
                 quote(&binary),
                 quote(&script)
             );
-            let engine = Arc::new(autopilot::engine::Autopilot::new(scanner, setup));
+            let recovery = Arc::new(recovery::Recovery::new(
+                &app.path().app_data_dir()?.join("port-timeline.sqlite"),
+                scanner.clone(),
+                projects,
+            ));
+            app.manage(recovery.clone());
+            let mut autopilot = autopilot::engine::Autopilot::new(scanner, setup);
+            autopilot.recovery = Some(recovery);
+            let engine = Arc::new(autopilot);
             #[cfg(unix)]
             if let Err(error) = autopilot::ipc::start(engine.clone()) {
                 *engine.connection_error.lock().unwrap() = Some(error);
@@ -52,6 +61,13 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::recovery::recovery_restart,
+            commands::recovery::recovery_status,
+            commands::recovery::recovery_inspect,
+            commands::recovery::recovery_profile,
+            commands::recovery::recovery_save_profile,
+            commands::recovery::recovery_test_profile,
+            commands::recovery::recovery_terminal,
             commands::timeline::timeline_query,
             commands::timeline::timeline_configure,
             commands::timeline::timeline_clear,

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Command,
 };
 /// Secret-bearing context: never Debug, never returned through Tauri, never saved
 /// to disk. Serialization is used only on the private same-user Unix socket.
@@ -23,6 +23,13 @@ impl Capture {
             || self.argv.iter().map(String::len).sum::<usize>() > 65536
         {
             return Err("Command arguments are empty or too large.".into());
+        }
+        #[cfg(windows)]
+        if Path::new(&self.executable)
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"))
+        {
+            return Err("Batch-file recovery requires an explicitly configured shell command; implicit cmd.exe evaluation is disabled.".into());
         }
         if self.exit_code == 0 {
             return Err("Only failed commands can be registered as conflicts.".into());
@@ -54,23 +61,9 @@ impl Capture {
         Ok(())
     }
     pub fn command(&self) -> Result<Command, String> {
-        self.validate()?;
-        let mut command = Command::new(&self.executable);
-        command
-            .args(&self.argv[1..])
-            .current_dir(&self.cwd)
-            .env_clear()
-            .envs(&self.env)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            command.arg0(&self.argv[0]).process_group(0);
-        }
-        Ok(command)
+        crate::recovery::launch_context::command(self)
     }
+
     pub fn alternate(&self, port: u16) -> Option<Self> {
         let mut capture = self.clone();
         let first = Path::new(self.argv.first()?).file_name()?.to_str()?;
@@ -163,9 +156,9 @@ pub fn resolve_executable(program: &str, cwd: &Path) -> Option<PathBuf> {
             })
             .find(|p| is_executable(p))?
     };
-    is_executable(&candidate)
-        .then(|| candidate.canonicalize().ok())
-        .flatten()
+    // Preserve the invocation path: resolving a virtualenv's Python symlink to
+    // the system interpreter changes sys.prefix and can lose installed packages.
+    is_executable(&candidate).then_some(candidate)
 }
 fn is_executable(path: &Path) -> bool {
     if !path.is_file() {

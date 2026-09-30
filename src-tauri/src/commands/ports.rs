@@ -2,10 +2,12 @@ use crate::{ports::models::PortEntry, ScannerState};
 #[tauri::command]
 pub async fn scan_ports(
     record_history: Option<bool>,
+    recovery: tauri::State<'_, crate::recovery::RecoveryStateHandle>,
     timeline: tauri::State<'_, crate::timeline::TimelineState>,
     state: tauri::State<'_, ScannerState>,
     projects: tauri::State<'_, std::sync::Arc<crate::projects::cache::ProjectEngine>>,
 ) -> Result<Vec<PortEntry>, String> {
+    let recovery = recovery.inner().clone();
     let timeline = timeline.inner().clone();
     let scanner = state.inner().clone();
     let projects = projects.inner().clone();
@@ -24,6 +26,9 @@ pub async fn scan_ports(
             }
         };
         projects.enrich(&mut entries, true);
+        projects.resolve_changed(&entries);
+        projects.enrich(&mut entries, false);
+        recovery.enrich(&mut entries);
         if let Ok(mut t) = timeline.lock() {
             if record_history != Some(false) {
                 t.observe(&entries, &projects);

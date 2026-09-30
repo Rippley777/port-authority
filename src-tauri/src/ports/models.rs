@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct PortEntry {
     #[serde(default)]
+    pub launch: Option<crate::recovery::models::LaunchContext>,
+    #[serde(default)]
     pub project: Option<crate::projects::models::ProjectIdentity>,
     #[serde(default)]
     pub service_name: Option<String>,
@@ -12,6 +14,7 @@ pub struct PortEntry {
     pub address: String,
     pub pid: Option<u32>,
     pub process: String,
+    #[serde(serialize_with = "crate::recovery::launch_context::serialize_argv")]
     pub command: Vec<String>,
     pub executable: Option<String>,
     pub cwd: Option<String>,

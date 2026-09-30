@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { useOpenTimeline } from "../features/timeline/useTimeline";
 import { ProjectActions } from "../features/projects/ProjectActions";
 import {
@@ -8,8 +9,9 @@ import {
   FolderOpen,
   RotateCw,
   Square,
+  Terminal,
 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { desktop } from "../lib/api";
 import { connectionAddress } from "../lib/ports";
 import type { PortEntry, ProcessAction } from "../lib/types";
@@ -37,6 +39,8 @@ export function PortContextMenu({
   inspect,
 }: Props) {
   const viewTimeline = useOpenTimeline();
+  const [terminalError, setTerminalError] = useState("");
+  const directory = menu.entry.launch?.workingDirectory ?? menu.entry.cwd;
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -85,11 +89,25 @@ export function PortContextMenu({
           <ProjectActions
             project={menu.entry.project}
             menu
+            omitTerminal
             done={() => setMenu(null)}
           />
           <div className="menu-separator" />
         </>
       )}
+      {directory && (
+        <MenuItem
+          icon={Terminal}
+          label="Open Terminal Here"
+          disabled={!desktop}
+          onClick={() => {
+            void invoke("recovery_terminal", { directory })
+              .then(() => setMenu(null))
+              .catch((e) => setTerminalError(String(e)));
+          }}
+        />
+      )}
+      {terminalError && <p role="alert">{terminalError}</p>}
       <MenuItem
         icon={History}
         label="View Timeline"
@@ -118,8 +136,15 @@ export function PortContextMenu({
         ["Copy address", connectionAddress(menu.entry)],
         ["Copy port", String(menu.entry.port)],
         ["Copy PID", menu.entry.pid === null ? "" : String(menu.entry.pid)],
-        ["Copy command", menu.entry.command.join(" ")],
+        [
+          "Copy command",
+          menu.entry.launch?.command ?? menu.entry.command.join(" "),
+        ],
         ["Copy process path", menu.entry.executable ?? ""],
+        [
+          "Copy Working Directory",
+          menu.entry.launch?.workingDirectory ?? menu.entry.cwd ?? "",
+        ],
       ].map(([label, value]) => (
         <MenuItem
           key={label}
@@ -142,16 +167,18 @@ export function PortContextMenu({
           setMenu(null);
         }}
       />
-      <MenuItem
-        icon={RotateCw}
-        label="Restart"
-        disabled={!menu.entry.restartable}
-        title={menu.entry.restartReason}
-        onClick={() => {
-          requestAction(menu.entry, "restart");
-          setMenu(null);
-        }}
-      />
+      {menu.entry.restartable && (
+        <MenuItem
+          icon={RotateCw}
+          label="Restart"
+          disabled={!menu.entry.restartable}
+          title={menu.entry.restartReason}
+          onClick={() => {
+            requestAction(menu.entry, "restart");
+            setMenu(null);
+          }}
+        />
+      )}
       <div className="menu-separator" />
       <MenuItem
         icon={Square}

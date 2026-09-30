@@ -3,7 +3,7 @@ use super::{
     classifier::{classify, project_name},
     detector,
     models::{now, Action, Conflict, Risk, Snapshot, Status},
-    runner::{output_text, ManagedRun},
+    runner::ManagedRun,
 };
 use crate::{ports::models::PortEntry, process::controller, ScannerState};
 use std::{
@@ -29,6 +29,7 @@ struct Store {
     launches: Vec<Arc<ManagedRun>>,
 }
 pub struct Autopilot {
+    pub recovery: Option<crate::recovery::RecoveryStateHandle>,
     scanner: ScannerState,
     store: Mutex<Store>,
     operation: Mutex<()>,
@@ -39,6 +40,7 @@ pub struct Autopilot {
 impl Autopilot {
     pub fn new(scanner: ScannerState, setup_command: String) -> Self {
         Self {
+            recovery: None,
             scanner,
             store: Mutex::new(Store::default()),
             operation: Mutex::new(()),
@@ -90,6 +92,19 @@ impl Autopilot {
             .map_err(|_| "Socket scanner is unavailable".to_owned())?
             .scan()
     }
+    pub fn observe_launch(
+        &self,
+        capture: Capture,
+        root: crate::process::ProcessIdentity,
+    ) -> Result<String, String> {
+        if !self.enabled.load(Ordering::SeqCst) {
+            return Err("Enable Conflict Autopilot to capture launches.".into());
+        }
+        self.recovery
+            .as_ref()
+            .ok_or("Command Recovery unavailable")?
+            .observe(capture, root)
+    }
     pub fn register(&self, capture: Capture) -> Result<String, String> {
         if !self.enabled.load(Ordering::SeqCst) {
             return Err(
@@ -111,7 +126,7 @@ impl Autopilot {
             .iter()
             .filter(|p| p.port == port && p.protocol == "TCP")
             .collect();
-        let owner = owners
+        let mut owner = owners
             .first()
             .filter(|first| {
                 !entries
@@ -122,6 +137,16 @@ impl Autopilot {
                     })
             })
             .map(|p| (*p).clone());
+        if let (Some(recovery), Some(entry)) = (&self.recovery, &mut owner) {
+            let mut entries = recovery.scan()?;
+            recovery.enrich(&mut entries);
+            if let Some(enriched) = entries
+                .into_iter()
+                .find(|p| p.identity() == entry.identity() && p.port == entry.port)
+            {
+                *entry = enriched;
+            }
+        }
         let seen = owner
             .as_ref()
             .and_then(|p| p.identity())
@@ -142,10 +167,13 @@ impl Autopilot {
         if let Some((id, record)) = store.records.iter_mut().find(|(_, r)| {
             r.view.port == port
                 && r.view.cwd == capture.cwd
-                && r.view.command == capture.argv
+                && r.capture.as_ref().is_some_and(|c| c.argv == capture.argv)
                 && r.view.status == Status::Detected
         }) {
-            record.view.evidence = detector::clean_output(&capture.error);
+            record.view.evidence = crate::recovery::launch_context::redact(
+                &detector::clean_output(&capture.error),
+                &capture,
+            );
             record.view.expires_at = now() + 900;
             record.capture = Some(capture);
             return Ok(id.clone());
@@ -160,14 +188,16 @@ impl Autopilot {
             .as_ref()
             .and_then(|p| p.pid)
             .and_then(|pid| store.launches.iter().find(|run| run.owns_pid(pid)));
-        let restart_owner_available = owner_run.is_some() && safety.risk != Risk::Blocked;
+        let restart_owner_available = (owner_run.is_some()
+            || owner.as_ref().is_some_and(|p| p.restartable))
+            && safety.risk != Risk::Blocked;
         let id = Uuid::new_v4().to_string();
         let view = Conflict {
-            id: id.clone(), port, command: capture.argv.clone(), cwd: capture.cwd.clone(), project: project_name(&capture.cwd), owner,
-            safety, status: Status::Detected, message: "A development command failed because its port was already in use.".into(), evidence: detector::clean_output(&capture.error), steps: vec![], output: String::new(), alternative,
+            id: id.clone(), port, command: crate::recovery::launch_context::safe_argv(&capture), cwd: capture.cwd.clone(), project: project_name(&capture.cwd), owner,
+            safety, status: Status::Detected, message: "A development command failed because its port was already in use.".into(), evidence: crate::recovery::launch_context::redact(&detector::clean_output(&capture.error), &capture), steps: vec![], output: String::new(), alternative,
             alternate_reason: if alternate_supported { "Uses the framework’s explicit --port option. Availability is checked again before launch." } else { "Alternate ports are supported for direct Vite/Next dev commands and simple npm scripts containing vite or next dev. This command cannot be rewritten safely." }.into(),
             restart_owner_available,
-            restart_owner_reason: if restart_owner_available { "The owner was launched by Autopilot. Its complete launch context is still held in memory. This restarts the owner; it does not retry the blocked project." } else { "The owner’s complete launch environment was not captured, or the process is protected. Restart cannot be reproduced safely." }.into(),
+            restart_owner_reason: if restart_owner_available { "The owner has a recoverable launch context. Its launch root and ports will be verified. This restarts the owner; it does not retry the blocked project." } else { "The owner’s complete launch environment was not captured, or the process is protected. Restart cannot be reproduced safely." }.into(),
             launched_pid: None, recovery_port: None, recovery_action: None, retry_command: None, listener: None, created_at: now(), expires_at: now()+900,
         };
         store.records.insert(
@@ -184,13 +214,17 @@ impl Autopilot {
         store.launches.retain(|run| run.exit_status().is_none());
         for record in store.records.values_mut() {
             if let Some(run) = &record.run {
-                record.view.output = output_text(&run.output);
+                record.view.output = run.output_text();
                 if let Some(exit) = run.exit_status() {
                     if matches!(record.view.status, Status::Resolved | Status::Unverified) {
                         record.view.status = Status::Failed;
                         record.view.message = format!("{exit} See captured output below.");
                     }
-                    record.run = None;
+                    // The detached supervisor can finish draining output just after
+                    // the root exits. Keep polling it until the final output arrives.
+                    if run.output_finished() || now() >= record.view.expires_at {
+                        record.run = None;
+                    }
                 }
             }
             if now() >= record.view.expires_at
@@ -251,6 +285,18 @@ impl Autopilot {
             .operation
             .try_lock()
             .map_err(|_| "Another recovery is in progress. Wait for it to finish.")?;
+        let _shared_operation = if action != Action::RestartOwner {
+            self.recovery
+                .as_ref()
+                .map(|r| {
+                    r.operation
+                        .try_lock()
+                        .map_err(|_| "Another command recovery is in progress")
+                })
+                .transpose()?
+        } else {
+            None
+        };
         if action == Action::Ignore {
             let mut store = self.store.lock().map_err(|_| "Autopilot unavailable")?;
             store.records.remove(id);
@@ -328,6 +374,33 @@ impl Autopilot {
         approved: bool,
         target_port: Option<u16>,
     ) -> Result<(), String> {
+        if action == Action::RestartOwner {
+            if let Some(recovery) = &self.recovery {
+                let owner = self
+                    .verify_owner(view)?
+                    .ok_or("The owner is no longer listening")?;
+                let launch = view
+                    .owner
+                    .as_ref()
+                    .and_then(|p| p.launch.as_ref())
+                    .ok_or("Owner launch context is unavailable")?;
+                let status = recovery.restart(
+                    &launch.id,
+                    owner.identity().ok_or("Owner identity is unavailable")?,
+                    view.port,
+                    false,
+                )?;
+                if let Ok(mut store) = self.store.lock() {
+                    if let Some(record) = store.records.get_mut(&view.id) {
+                        record.view.output = status.output;
+                        record.view.launched_pid = status.new_pid;
+                        record.view.recovery_port = Some(view.port);
+                    }
+                }
+                self.update(&view.id,Status::Resolved,"Owner restarted and its ports were verified. The blocked project has not been retried.",Some(status.message));
+                return Ok(());
+            }
+        }
         let mut port = view.port;
         if action == Action::Alternate {
             port = target_port
@@ -392,15 +465,23 @@ impl Autopilot {
             self.verify_owner(view)?.ok_or(
                 "The owner stopped while preparing recovery. Click Retry to recheck the free port.",
             )?;
-            controller::control(
-                owner.pid.ok_or("Missing PID")?,
-                owner.started_at,
-                if action == Action::ForceRetry {
-                    "force"
-                } else {
-                    "kill"
-                },
-            )?;
+            let stopped_tree = self
+                .recovery
+                .as_ref()
+                .map(|r| r.stop_for_conflict(&owner, action == Action::ForceRetry))
+                .transpose()?
+                .unwrap_or(false);
+            if !stopped_tree {
+                controller::control(
+                    owner.pid.ok_or("Missing PID")?,
+                    owner.started_at,
+                    if action == Action::ForceRetry {
+                        "force"
+                    } else {
+                        "kill"
+                    },
+                )?;
+            }
             self.update(
                 &view.id,
                 Status::Resolving,
@@ -496,7 +577,20 @@ impl Autopilot {
                 "Port {port} was claimed before launch. The command was not retried."
             ));
         }
-        let run = ManagedRun::spawn(capture)?;
+        let run = if let Some(recovery) = &self.recovery {
+            recovery.spawn_retry(capture)?
+        } else {
+            ManagedRun::spawn(capture)?
+        };
+        if let Some(recovery) = &self.recovery {
+            let _ = recovery.observe_relaunch(
+                run.capture.clone(),
+                crate::process::ProcessIdentity {
+                    pid: run.pid,
+                    started_at: run.started_at,
+                },
+            );
+        }
         {
             let mut store = self.store.lock().map_err(|_| "Autopilot unavailable")?;
             store.launches.push(run.clone());
@@ -504,7 +598,8 @@ impl Autopilot {
                 record.run = Some(run.clone());
                 record.view.launched_pid = Some(run.pid);
                 record.view.recovery_port = Some(port);
-                record.view.retry_command = Some(run.capture.argv.clone());
+                record.view.retry_command =
+                    Some(crate::recovery::launch_context::safe_argv(&run.capture));
             }
         }
         self.update(
@@ -545,7 +640,7 @@ impl Autopilot {
             }
             if let Some(exit) = run.exit_status() {
                 thread::sleep(Duration::from_millis(80));
-                let text = output_text(&run.output);
+                let text = run.output_text();
                 let lines: Vec<_> = text.lines().rev().take(8).collect();
                 let reason: String = lines
                     .into_iter()

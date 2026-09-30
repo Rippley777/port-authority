@@ -539,12 +539,26 @@ function Snapshot({
         </dd>
         <dt>Command</dt>
         <dd>
-          <code>{p.command.join(" ") || "Unavailable"}</code>
+          <code>
+            {p.launch?.command ?? (p.command.join(" ") || "Unavailable")}
+          </code>
         </dd>
+        {p.launch && (
+          <>
+            <dt>Launch source</dt>
+            <dd>
+              {p.launch.relaunchedAt
+                ? "Relaunched by Port Authority"
+                : p.launch.source.replaceAll("_", " ")}
+            </dd>
+            <dt>Launch root</dt>
+            <dd>PID {p.launch.launchRoot.pid}</dd>
+          </>
+        )}
         <dt>Executable</dt>
         <dd>{p.executable ?? "Unavailable"}</dd>
         <dt>Working directory</dt>
-        <dd>{p.cwd ?? "Unavailable"}</dd>
+        <dd>{p.launch?.workingDirectory ?? p.cwd ?? "Unavailable"}</dd>
         <dt>User / parent</dt>
         <dd>
           {p.user ?? "Unknown"} · PID {p.parentPid ?? "unknown"}

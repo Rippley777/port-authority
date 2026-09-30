@@ -59,6 +59,31 @@ pub(crate) fn run_with_submit(
             return 126;
         }
     };
+    if let (Ok(environment), Some(directory), Some(binary)) =
+        (&env, cwd.to_str(), executable.to_str())
+    {
+        let mut system = sysinfo::System::new();
+        system.refresh_processes(
+            sysinfo::ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(child.id())]),
+            true,
+        );
+        if let Some(process) = system.process(sysinfo::Pid::from_u32(child.id())) {
+            let capture = Capture {
+                argv: argv.clone(),
+                executable: binary.into(),
+                cwd: directory.into(),
+                env: environment.clone(),
+                error: String::new(),
+                exit_code: 1,
+            };
+            let root = crate::process::ProcessIdentity {
+                pid: child.id(),
+                started_at: process.start_time(),
+            };
+            // Failure leaves the command running normally; the wrapper still reports later conflicts.
+            let _ = ipc::submit_launch(capture, root);
+        }
+    }
     let output = Arc::new(Mutex::new(Vec::new()));
     let readers = [
         pump(child.stdout.take().unwrap(), output.clone(), Some(false)),

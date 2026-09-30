@@ -1,5 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 fn main() {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--recovery-supervise")) {
+        std::process::exit(port_authority_lib::recovery::executor::supervise());
+    }
     #[cfg(unix)]
     if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--autopilot-run")) {
         let args: Result<Vec<String>, _> = std::env::args_os()

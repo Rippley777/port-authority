@@ -51,7 +51,8 @@ pub struct ManagedRun {
     pub pid: u32,
     pub started_at: u64,
     pub capture: Capture,
-    child: Mutex<Child>,
+    child: Mutex<Option<Child>>,
+    detached_output: Option<std::path::PathBuf>,
     pub output: Output,
 }
 impl ManagedRun {
@@ -78,23 +79,62 @@ impl ManagedRun {
             pid,
             started_at,
             capture,
-            child: Mutex::new(child),
+            child: Mutex::new(Some(child)),
+            detached_output: None,
             output,
         }))
+    }
+    pub fn spawn_detached(
+        capture: Capture,
+        directory: &std::path::Path,
+    ) -> Result<Arc<Self>, String> {
+        let (root, path) = crate::recovery::executor::launch(capture.clone(), directory)?;
+        Ok(Arc::new(Self {
+            pid: root.pid,
+            started_at: root.started_at,
+            capture,
+            child: Mutex::new(None),
+            detached_output: Some(path),
+            output: Arc::new(Mutex::new(Vec::new())),
+        }))
+    }
+    pub fn output_text(&self) -> String {
+        if let Some(path) = &self.detached_output {
+            crate::recovery::executor::output(path)
+        } else {
+            crate::recovery::launch_context::redact(&output_text(&self.output), &self.capture)
+        }
+    }
+    pub fn output_finished(&self) -> bool {
+        self.detached_output.as_ref().is_none_or(|path| {
+            crate::recovery::executor::output(path).contains("Command exited with")
+        })
     }
     #[cfg(test)]
     pub fn stop_for_test(&self) {
         if let Ok(mut child) = self.child.lock() {
-            let _ = child.kill();
-            let _ = child.wait();
+            if let Some(child) = child.as_mut() {
+                let _ = child.kill();
+                let _ = child.wait();
+            } else {
+                let _ =
+                    crate::process::controller::control(self.pid, Some(self.started_at), "force");
+            }
         }
     }
     pub fn exit_status(&self) -> Option<String> {
         match self.child.lock() {
-            Ok(mut child) => match child.try_wait() {
-                Ok(Some(status)) => Some(format!("Command exited with {status}.")),
-                Ok(None) => None,
-                Err(e) => Some(format!("Unable to inspect the retried command: {e}")),
+            Ok(mut child) => match child.as_mut() {
+                None => (!crate::recovery::resolver::alive(crate::process::ProcessIdentity {
+                    pid: self.pid,
+                    started_at: self.started_at,
+                }))
+                .then(|| "The relaunched command exited. View output for details.".into()),
+                Some(child) => match child.try_wait() {
+                    Ok(Some(status)) => Some(format!("Command exited with {status}.")),
+                    Ok(None) => None,
+                    Err(e) => Some(format!("Unable to inspect the retried command: {e}")),
+                },
             },
             Err(_) => Some("Unable to inspect the retried command.".into()),
         }

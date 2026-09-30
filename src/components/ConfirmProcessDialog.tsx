@@ -1,3 +1,4 @@
+import { RecoveryProgress } from "../features/recovery/LaunchSection";
 import { Info, LoaderCircle, Square, Terminal } from "lucide-react";
 import type { PortEntry, ProcessAction } from "../lib/types";
 import { desktop } from "../lib/api";
@@ -15,23 +16,38 @@ export function ConfirmProcessDialog({
   ports: PortEntry[];
   perform: (p: PortEntry, a: ProcessAction) => Promise<void>;
 }) {
+  const recovering =
+    confirmation.action === "restart" || confirmation.action === "relaunch";
+  const label =
+    confirmation.action === "restart"
+      ? "Restart"
+      : confirmation.action === "relaunch"
+        ? "Kill & Relaunch"
+        : confirmation.action === "force"
+          ? "Force kill"
+          : "Stop";
   return (
     <Modal
       close={closeConfirmation}
-      label="Confirm process termination"
+      label={
+        recovering ? "Confirm command recovery" : "Confirm process termination"
+      }
       className="confirm-backdrop"
     >
       <div className="confirmation-icon">
         <Square size={23} />
       </div>
       <h2>
-        {confirmation.action === "force" ? "Force kill" : "Stop"}{" "}
-        {confirmation.entry.process}?
+        {label} {confirmation.entry.process}?
       </h2>
       <p>
-        {confirmation.action === "force"
-          ? "This immediately stops the process without cleanup. Unsaved work may be lost."
-          : "This sends a graceful termination signal. Any services owned by this process will stop."}
+        {recovering
+          ? confirmation.action === "relaunch"
+            ? "Force stops the launch root and its children, then runs the recovery command. Unsaved work may be lost."
+            : "Gracefully stops the launch root and its children, then runs the original command and verifies its ports."
+          : confirmation.action === "force"
+            ? "This immediately stops the process without cleanup. Unsaved work may be lost."
+            : "This sends a graceful termination signal. Any services owned by this process will stop."}
       </p>
       <div className="confirm-process">
         <Terminal size={17} />
@@ -45,6 +61,20 @@ export function ConfirmProcessDialog({
           .map((p) => `:${p.port}`)
           .join(", ")}
       </p>
+      {recovering && (
+        <>
+          <div className="code-block">
+            {confirmation.entry.launch?.command}
+            <br />
+            {confirmation.entry.launch?.workingDirectory}
+          </div>
+          <p className="confirm-note">
+            Launch root: PID {confirmation.entry.launch?.launchRoot.pid}. All
+            ports owned by this launch are affected.
+          </p>
+          <RecoveryProgress id={confirmation.entry.launch?.id} />
+        </>
+      )}
       {!desktop && (
         <div className="preview-warning">
           <Info size={15} />
@@ -71,9 +101,7 @@ export function ConfirmProcessDialog({
           ) : (
             <Square size={12} />
           )}
-          {confirmation.action === "force"
-            ? "Force kill process"
-            : "Stop process"}
+          {recovering ? label : `${label} process`}
         </button>
       </div>
     </Modal>

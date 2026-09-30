@@ -1,3 +1,4 @@
+import { LaunchSection } from "../features/recovery/LaunchSection";
 import { useOpenTimeline } from "../features/timeline/useTimeline";
 import { ProjectSection } from "../features/projects/ProjectsScreen";
 import {
@@ -122,6 +123,7 @@ export function ProcessDrawer({
             </p>
           </div>
         )}
+        <LaunchSection entry={p} copy={copy} />
         <h4 className="section-label">CONNECTION</h4>
         <dl className="details">
           <dt>Local address</dt>
@@ -234,6 +236,11 @@ export function ProcessDrawer({
           </span>
         ) : (
           <>
+            {p.restartable && (
+              <button className="button" onClick={() => control("relaunch")}>
+                Kill &amp; Relaunch
+              </button>
+            )}
             <button
               className="button danger"
               disabled={!p.pid}

@@ -1,6 +1,7 @@
 import type { ProjectIdentity } from "../features/projects/types";
 export type Protocol = "TCP" | "UDP";
 export interface PortEntry {
+  launch?: import("../features/recovery/types").LaunchContext | null;
   project?: ProjectIdentity | null;
   serviceName?: string | null;
   id: string;
@@ -78,4 +79,4 @@ export const defaultSettings: Settings = {
   retention: 500,
   theme: "Dark",
 };
-export type ProcessAction = "kill" | "force" | "restart";
+export type ProcessAction = "kill" | "force" | "restart" | "relaunch";

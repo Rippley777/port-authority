@@ -5,10 +5,12 @@ export function ProjectActions({
   project: p,
   menu = false,
   done,
+  omitTerminal = false,
 }: {
   project: ProjectIdentity;
   menu?: boolean;
   done?: () => void;
+  omitTerminal?: boolean;
 }) {
   const { action, editorName } = useProjectContext();
   const actions = [
@@ -28,21 +30,23 @@ export function ProjectActions({
   ];
   return (
     <div className={menu ? "project-menu-actions" : "project-actions"}>
-      {actions.map((a) => (
-        <button
-          key={a.id}
-          title={a.label}
-          role={menu ? "menuitem" : undefined}
-          className={menu ? "" : "button"}
-          onClick={() => {
-            void action(p, a.id);
-            done?.();
-          }}
-        >
-          <a.icon size={14} />
-          {a.label}
-        </button>
-      ))}
+      {actions
+        .filter((a) => !omitTerminal || a.id !== "terminal")
+        .map((a) => (
+          <button
+            key={a.id}
+            title={a.label}
+            role={menu ? "menuitem" : undefined}
+            className={menu ? "" : "button"}
+            onClick={() => {
+              void action(p, a.id);
+              done?.();
+            }}
+          >
+            <a.icon size={14} />
+            {a.label}
+          </button>
+        ))}
     </div>
   );
 }

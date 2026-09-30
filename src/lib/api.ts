@@ -34,11 +34,28 @@ export async function scanPorts(): Promise<PortEntry[]> {
 export async function controlProcess(
   entry: PortEntry,
   action: ProcessAction,
-): Promise<void> {
+): Promise<string | void> {
   if (entry.protected || !entry.pid)
     throw new Error("This process is protected. Process control is disabled.");
-  if (action === "restart" && !entry.restartable)
+  if ((action === "restart" || action === "relaunch") && !entry.restartable)
     throw new Error(entry.restartReason);
+  if (action === "restart" || action === "relaunch") {
+    if (!desktop)
+      throw new Error(
+        "Command Recovery requires the desktop app. No process was affected.",
+      );
+    if (!entry.launch || !entry.startedAt)
+      throw new Error("Original launch command could not be determined.");
+    const result = await invoke<
+      import("../features/recovery/types").RecoveryStatus
+    >("recovery_restart", {
+      id: entry.launch.id,
+      identity: { pid: entry.pid, startedAt: entry.startedAt },
+      port: entry.port,
+      force: action === "relaunch",
+    });
+    return result.message;
+  }
   if (desktop)
     await invoke("control_process", {
       pid: entry.pid,

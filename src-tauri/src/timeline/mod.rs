@@ -101,6 +101,7 @@ impl Timeline {
             });
             if let Some(old) = found {
                 let mut observed = old.clone();
+                observed.process.launch = p.launch.clone();
                 if p.project.is_some() {
                     observed.process.project = p.project.clone();
                     observed.process.service_name = p.service_name.clone();

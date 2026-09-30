@@ -92,6 +92,7 @@ src-tauri/src/
   autopilot/         Conflict detection, classification, capture, recovery, and private IPC
   projects/          Resolver, bounded manifests, Git metadata, cache, and application actions
   timeline/          Reconciliation, correlation, ancestry, SQLite, and monitoring sessions
+  recovery/          Launch contexts, recipes, ancestry correlation, safe restart, detached output
 shell/               Optional bash/zsh integration
 ```
 
@@ -115,7 +116,28 @@ Windows has no universal graceful signal for arbitrary processes. Normal Kill re
 
 “Available” means no matching socket was visible in the most recent successful scan. It is not a reservation or a guarantee that an immediate bind will succeed; OS permissions can limit visibility. Failed scans never produce an availability claim. Paused lookups explicitly refer to the last scan.
 
-The general process drawer keeps restart disabled for observed processes: executable, arguments, and working directory alone cannot reproduce the environment or supervisor. Conflict Autopilot can restart owners it actually launched from a complete captured context. Startup registration is visibly unavailable; System theme currently uses the dark appearance. The initial package is unsigned/unnotarized. There is no general-purpose CLI; the executable provides only the dedicated shell-capture entry point used by `pa`.
+Command Recovery enables Restart only when a complete runtime context or explicit project recovery command is available. It verifies the launch tree and all affected ports before reporting success. Unknown commands, unavailable environments, Docker proxies, and changed identities remain unavailable. Startup registration is visibly unavailable; System theme currently uses the dark appearance. The initial package is unsigned/unnotarized. There is no general-purpose CLI; the executable provides internal shell-capture and detached-supervisor entry points.
+
+## Command Recovery
+
+Enable Conflict Autopilot and source its setup command in bash or zsh. The optional wrappers now observe successful starts as well as failed port binds:
+
+```sh
+cd ~/Code/shipwreck
+npm run dev
+# Or capture an external executable explicitly:
+pa cargo run
+```
+
+Inspect the listener to see **Launch**: the original argument vector, working directory, source, launch root, and redacted environment. **Restart** gracefully stops the verified launch tree; **Kill & Relaunch** explicitly force stops it. Both check that every affected TCP port is released, run the original command from the original directory, and verify ownership across several scans before reporting success. Package managers stay distinct. Metadata reconstruction is labelled; missing prerequisites fail before termination.
+
+**Set / Edit Recovery Command** stores a project recipe with an executable, literal arguments (one per line), and absolute directory. Recipes explicitly use the desktop app’s environment and act as a fallback; a complete newly observed terminal launch keeps its original command. **Test Recovery Command** starts the recipe and verifies the selected port only when the project and port are idle; it never stops an existing process. A successful test leaves the service running. Use Restart to replace an active launch.
+
+Launch metadata and recipes share `port-timeline.sqlite`. Runtime environments are held in memory and transferred to a detached supervisor through a pipe; secret values are not persisted. After reopening the app, saved contexts explain their origin but remain unavailable when their runtime environment is missing. A project recipe or a new observed launch restores deterministic recovery. Up to 200 recent context records and output artifacts are retained. Output is a bounded 32 KiB, redacted, local file with private permissions; **View Output** and **Inspect Process** remain available when verification fails. Closing the window or desktop does not stop relaunched services.
+
+Timeline snapshots include launch context and identify launches made by Port Authority. Autopilot uses the same structured spawning and recovery root; captured owners are stopped as a tree and can be restarted through Command Recovery. No keystroke logging, terminal transcript capture, telemetry, or cloud history is added.
+
+Initial adapters cover npm, pnpm, yarn, bun, cargo, and Python. Rewritten process titles are not parsed as shell commands. Generic metadata remains inspectable but cannot enable restart without enough evidence or a recipe. Shell syntax is only executed when an explicit shell executable and its arguments were captured/configured; aliases, functions, shell startup state, arbitrary pipelines outside the wrapper, daemonizing supervisors, Docker recovery, and project-wide task orchestration are not inferred. macOS is verified locally; Linux/Windows native behavior still depends on their process-inspection and termination support.
 
 ## Verify
 

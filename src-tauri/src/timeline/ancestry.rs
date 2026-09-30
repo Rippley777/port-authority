@@ -58,6 +58,7 @@ pub struct TreeMember {
     pub identity: ProcessIdentity,
     pub name: String,
     pub parent_pid: Option<u32>,
+    #[serde(serialize_with = "crate::recovery::launch_context::serialize_argv")]
     pub command: Vec<String>,
 }
 

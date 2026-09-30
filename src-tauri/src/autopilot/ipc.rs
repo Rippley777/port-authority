@@ -21,6 +21,8 @@ const LIMIT: u64 = 524288;
 struct Envelope {
     version: u8,
     capture: Capture,
+    #[serde(default)]
+    launch_root: Option<crate::process::ProcessIdentity>,
 }
 #[derive(Serialize, Deserialize)]
 struct Reply {
@@ -112,7 +114,11 @@ fn start_at(engine: Arc<Autopilot>, path: PathBuf) -> Result<(), String> {
                 if request.version != 1 {
                     return Err("Unsupported shell integration version".into());
                 }
-                engine.register(request.capture)
+                if let Some(root) = request.launch_root {
+                    engine.observe_launch(request.capture, root)
+                } else {
+                    engine.register(request.capture)
+                }
             })();
             let reply = match result {
                 Ok(id) => Reply {
@@ -135,6 +141,19 @@ pub fn submit(capture: Capture) -> Result<String, String> {
     submit_at(capture, socket_path()?)
 }
 fn submit_at(capture: Capture, path: PathBuf) -> Result<String, String> {
+    send(capture, None, path)
+}
+pub fn submit_launch(
+    capture: Capture,
+    root: crate::process::ProcessIdentity,
+) -> Result<String, String> {
+    send(capture, Some(root), socket_path()?)
+}
+fn send(
+    capture: Capture,
+    launch_root: Option<crate::process::ProcessIdentity>,
+    path: PathBuf,
+) -> Result<String, String> {
     let mut stream = UnixStream::connect(path).map_err(|_| {
         "Open Port Authority and enable Conflict Autopilot to receive this conflict.".to_owned()
     })?;
@@ -150,6 +169,7 @@ fn submit_at(capture: Capture, path: PathBuf) -> Result<String, String> {
     let bytes = serde_json::to_vec(&Envelope {
         version: 1,
         capture,
+        launch_root,
     })
     .map_err(|_| "Unable to encode command context".to_owned())?;
     if bytes.len() as u64 > LIMIT {

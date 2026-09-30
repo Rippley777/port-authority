@@ -231,7 +231,7 @@ pub fn act(
         _ => Err("Unknown project action".into()),
     }
 }
-fn terminal(root: &Path, preference: &str) -> Result<(), String> {
+pub fn terminal(root: &Path, preference: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         let app = match preference {

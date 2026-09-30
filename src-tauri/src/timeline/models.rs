@@ -7,6 +7,7 @@ pub use crate::process::ProcessIdentity;
 pub struct Ancestor {
     pub identity: ProcessIdentity,
     pub name: String,
+    #[serde(serialize_with = "crate::recovery::launch_context::serialize_argv")]
     pub command: Vec<String>,
     pub cwd: Option<String>,
     pub parent_pid: Option<u32>,

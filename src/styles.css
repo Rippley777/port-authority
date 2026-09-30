@@ -4329,3 +4329,63 @@ h1 {
     flex-direction: column;
   }
 }
+
+.launch-section {
+  margin-block: 22px;
+  padding-block: 4px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block: 12px;
+}
+.recovery-recipe {
+  display: grid;
+  gap: 12px;
+  margin-block: 16px;
+}
+.recovery-recipe label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+}
+.recovery-recipe input,
+.recovery-recipe textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: #17191d;
+  border: 1px solid #383b42;
+  color: inherit;
+  border-radius: 6px;
+  padding: 9px;
+  font: inherit;
+}
+.recovery-recipe textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+.recovery-environment {
+  max-height: 240px;
+  overflow: auto;
+  margin-top: 12px;
+}
+.recovery-environment dt {
+  overflow-wrap: anywhere;
+}
+.recovery-output {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 260px;
+  overflow: auto;
+}
+.recovery-progress {
+  margin-block: 12px;
+  font-size: 12px;
+}
+.launch-section summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 12px;
+}

@@ -30,7 +30,7 @@ pa_autopilot_on() {
   _PA_YARN_BODY="$(typeset -f yarn)"
   _PA_BUN_BODY="$(typeset -f bun)"
   _PA_AUTOPILOT_ACTIVE=1
-  printf '%s\n' 'Conflict Autopilot is watching dev/start commands in this shell. Use pa_autopilot_off to stop.'
+  printf '%s\n' 'Port Authority is capturing launch metadata and watching dev/start conflicts in this shell. Use pa_autopilot_off to stop.'
 }
 pa_autopilot_off() {
   if [ "${_PA_AUTOPILOT_ACTIVE-}" = 1 ]; then

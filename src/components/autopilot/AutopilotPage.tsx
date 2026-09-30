@@ -229,8 +229,9 @@ export function AutopilotPage({
               Nothing is killed automatically. Every retry rechecks live
               ownership. Pending captures expire after 15 minutes; environments
               never enter browser storage or logs. Retried commands run under
-              Port Authority with captured output. Their restart context stays
-              in memory while they run—keep the app open while using them.
+              Port Authority with captured output. Launch metadata is saved
+              locally; private environment values stay in memory. Relaunched
+              commands continue running when the app closes.
             </p>
           </div>
         </>
