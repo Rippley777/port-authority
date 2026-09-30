@@ -1,4 +1,5 @@
 [package]
+license-file = "../LICENSE"
 name = "port-authority"
 version = "0.1.0"
 description = "Know what's listening. A local-first port inspector."
