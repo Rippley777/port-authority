@@ -21,6 +21,7 @@
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.5",
     "@fontsource-variable/geist-mono": "^5.2.6",
+    "@house-edge/analytics": "file:vendor/house-edge-analytics-0.1.1.tgz",
     "@tauri-apps/api": "^2.8.0",
     "@tauri-apps/plugin-clipboard-manager": "^2.4.0",
     "lucide-react": "^0.468.0",

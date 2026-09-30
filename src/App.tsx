@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { trackView } from "./lib/analytics";
+import { useEffect, useState } from "react";
 import { TimelinePage } from "./features/timeline/TimelinePage";
 import { TimelineNavigation } from "./features/timeline/useTimeline";
 import { ProjectsContext, useProjects } from "./features/projects/useProjects";
@@ -107,6 +108,9 @@ export default function App() {
     favoriteAvailable,
     isTablePage,
   } = useWorkspace();
+  useEffect(() => {
+    trackView(page);
+  }, [page]);
   const [timelinePort, setTimelinePort] = useState<number | undefined>();
   const openTimeline = (port?: number) => {
     setTimelinePort(port);
