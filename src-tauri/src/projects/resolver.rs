@@ -19,7 +19,7 @@ fn device(_: &Path) -> Option<u64> {
 }
 // Ignore dependency/vendor manifests: their application is above node_modules/target.
 pub fn find_root(start: &Path) -> Option<(PathBuf, Vec<String>)> {
-    let mut path = start.canonicalize().ok()?;
+    let mut path = crate::process::privacy::accessible_path(start).ok()?;
     if path.is_file() {
         path.pop();
     }
@@ -35,14 +35,14 @@ pub fn find_root(start: &Path) -> Option<(PathBuf, Vec<String>)> {
     for candidate in path.ancestors().take(24) {
         if candidate.parent().is_none()
             || home.as_deref() == Some(candidate)
+            || crate::process::privacy::blocked(candidate)
             || device(candidate) != dev
         {
             break;
         }
         let markers = manifests::markers(candidate);
         if !markers.is_empty()
-            || candidate.join(".git").is_dir()
-            || candidate.join(".git").is_file()
+            || crate::process::privacy::accessible_path(&candidate.join(".git")).is_ok()
         {
             return Some((candidate.to_path_buf(), markers));
         }
@@ -95,6 +95,7 @@ pub fn candidate(
     if entry.system {
         return None;
     }
+    crate::process::privacy::trace(entry.pid.unwrap_or(0), "project_detection", "begin");
     if let Some(cwd) = &entry.cwd {
         if let Some((root, markers)) = find_root(Path::new(cwd)) {
             return Some((
@@ -105,58 +106,10 @@ pub fn candidate(
             ));
         }
     }
-    if let Some(exe) = &entry.executable {
-        if let Some((root, markers)) = find_root(Path::new(exe)) {
-            return Some((
-                root,
-                markers,
-                Confidence::High,
-                "Executable inside project".into(),
-            ));
-        }
-    }
-    // Never assign global infrastructure based solely on its launcher or arguments.
-    let infra = crate::autopilot::classifier::classify(
-        Some(entry),
-        entry.cwd.as_deref().unwrap_or("/"),
-        true,
-    );
-    if matches!(
-        infra.category,
-        crate::autopilot::models::Category::Infrastructure
-            | crate::autopilot::models::Category::SystemProcess
-    ) {
-        return None;
-    }
-    for arg in entry.command.iter().skip(1).take(24) {
-        if arg.starts_with('-') || !arg.contains(std::path::MAIN_SEPARATOR) {
-            continue;
-        }
-        let path = Path::new(arg);
-        let path = if path.is_absolute() {
-            path.to_path_buf()
-        } else if let Some(cwd) = &entry.cwd {
-            Path::new(cwd).join(path)
-        } else {
-            continue;
-        };
-        if let Some((root, markers)) = find_root(&path) {
-            return Some((
-                root,
-                markers,
-                Confidence::Low,
-                "Inferred from a command argument; verify attribution".into(),
-            ));
-        }
-    }
-    parent_cwd.and_then(find_root).map(|(root, markers)| {
-        (
-            root,
-            markers,
-            Confidence::Medium,
-            "Parent process working directory".into(),
-        )
-    })
+    // Missing/unusable cwd is not permission to probe executables, argv paths,
+    // parent application directories, or bundle contents.
+    let _ = parent_cwd;
+    None
 }
 pub fn service(entry: &PortEntry, project: Option<&ProjectIdentity>) -> String {
     let cmd = format!("{} {}", entry.process, entry.command.join(" ")).to_lowercase();

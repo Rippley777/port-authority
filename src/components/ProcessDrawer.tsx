@@ -117,9 +117,8 @@ export function ProcessDrawer({
           <div className="permission-note">
             <Shield size={16} />
             <p>
-              Some process information is unavailable because Port Authority
-              does not have permission to inspect this process. Run the app as
-              the process owner to see more details.
+              Some optional process metadata is restricted or unavailable. Port
+              and process monitoring will continue normally.
             </p>
           </div>
         )}

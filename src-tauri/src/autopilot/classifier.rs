@@ -3,8 +3,7 @@ use crate::ports::models::PortEntry;
 use std::path::{Path, PathBuf};
 
 pub fn project_root(cwd: &str) -> PathBuf {
-    let original = Path::new(cwd)
-        .canonicalize()
+    let original = crate::process::privacy::accessible_path(Path::new(cwd))
         .unwrap_or_else(|_| PathBuf::from(cwd));
     if let Some((root, _)) = crate::projects::resolver::find_root(&original) {
         return root;

@@ -7,7 +7,6 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use sysinfo::{Pid, ProcessesToUpdate, System};
 
 #[derive(Clone, Hash, PartialEq, Eq)]
 struct Key {
@@ -31,7 +30,6 @@ impl Key {
     }
 }
 struct Cached {
-    at: Instant,
     identity: Option<ProjectIdentity>,
 }
 #[derive(Default)]
@@ -89,7 +87,7 @@ impl ProjectEngine {
         });
         let worker = engine.clone();
         thread::spawn(move || loop {
-            let entries = {
+            let mut entries = {
                 let mut queue = worker.queue.lock().unwrap();
                 while queue.entries.is_none() {
                     if Arc::strong_count(&worker) == 1 {
@@ -104,6 +102,7 @@ impl ProjectEngine {
                 queue.working = true;
                 queue.entries.take().unwrap()
             };
+            inspector::enrich(&mut entries);
             worker.resolve_entries(&entries);
             if let Some(listener) = worker.listener.lock().unwrap().clone() {
                 let mut enriched = entries;
@@ -119,6 +118,7 @@ impl ProjectEngine {
     }
     // Only memory work on the socket scan path. A single coalescing queue cannot build a backlog.
     pub fn enrich(&self, entries: &mut [PortEntry], submit: bool) {
+        inspector::apply_cached(entries);
         if let Ok(data) = self.data.lock() {
             for p in entries.iter_mut() {
                 p.project = Key::of(p)
@@ -144,17 +144,6 @@ impl ProjectEngine {
         let _resolution = self.resolution.lock().unwrap();
         let live: HashSet<_> = entries.iter().filter_map(Key::of).collect();
         let now = crate::autopilot::models::now();
-        let mut system = System::new();
-        let parent_ids: Vec<_> = entries
-            .iter()
-            .filter_map(|e| e.parent_pid)
-            .map(Pid::from_u32)
-            .collect();
-        system.refresh_processes_specifics(
-            ProcessesToUpdate::Some(&parent_ids),
-            true,
-            inspector::refresh_kind(),
-        );
         for p in entries.iter().take(2048) {
             let Some(key) = Key::of(p) else {
                 continue;
@@ -165,19 +154,11 @@ impl ProjectEngine {
                 .unwrap()
                 .processes
                 .get(&key)
-                .filter(|c| c.at.elapsed() < Duration::from_secs(30))
                 .map(|c| c.identity.clone());
             let identity = if let Some(value) = cached {
                 value
             } else {
-                let parent = p
-                    .parent_pid
-                    .and_then(|id| system.process(Pid::from_u32(id)))
-                    .filter(|parent| {
-                        crate::platform::same_user(parent) && parent.start_time() <= key.start
-                    })
-                    .and_then(|parent| parent.cwd());
-                resolver::candidate(p, parent).map(|(root, markers, confidence, evidence)| {
+                resolver::candidate(p, None).map(|(root, markers, confidence, evidence)| {
                     let root_key = root.to_string_lossy().to_string();
                     let cached = self
                         .data
@@ -202,12 +183,12 @@ impl ProjectEngine {
                 })
             };
             let mut data = self.data.lock().unwrap();
-            // Cache time is not extended on hits: negatives and positives eventually refresh.
+            // No timed retries: unavailable project metadata stays unavailable until
+            // identity/evidence changes or the user explicitly refreshes metadata.
             if cached_is_expired(&data.processes, &key) {
                 data.processes.insert(
                     key,
                     Cached {
-                        at: Instant::now(),
                         identity: identity.clone(),
                     },
                 );
@@ -328,6 +309,8 @@ impl ProjectEngine {
         Ok(identity)
     }
     pub fn invalidate(&self) {
+        crate::process::privacy::explicit_retry();
+        inspector::explicit_retry();
         let mut d = self.data.lock().unwrap();
         d.processes.clear();
         d.roots.clear();
@@ -385,9 +368,7 @@ impl ProjectEngine {
     }
 }
 fn cached_is_expired(processes: &HashMap<Key, Cached>, key: &Key) -> bool {
-    processes
-        .get(key)
-        .is_none_or(|c| c.at.elapsed() >= Duration::from_secs(30))
+    !processes.contains_key(key)
 }
 
 #[cfg(test)]

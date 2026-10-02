@@ -1,5 +1,5 @@
 use super::*;
-use crate::projects::{manifests, models::Confidence, repository, resolver};
+use crate::projects::{manifests, repository, resolver};
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
@@ -187,8 +187,7 @@ fn child_cwd_wins_parent_fallback_is_tentative_and_infrastructure_is_not_inferre
             .0,
         child.0
     );
-    let result = resolver::candidate(&entry(None), Some(&parent.0)).unwrap();
-    assert_eq!(result.2, Confidence::Medium);
+    assert!(resolver::candidate(&entry(None), Some(&parent.0)).is_none());
     let mut infra = entry(None);
     infra.process = "redis-server".into();
     infra.command = vec!["redis-server".into()];

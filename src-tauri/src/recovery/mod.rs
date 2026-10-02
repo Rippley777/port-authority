@@ -33,7 +33,10 @@ struct Store {
     outputs: HashMap<String, PathBuf>,
 }
 pub type RecoveryStateHandle = Arc<Recovery>;
+type AncestorCache =
+    HashMap<(ProcessIdentity, Option<u32>), Vec<crate::timeline::models::Ancestor>>;
 pub struct Recovery {
+    ancestors: Mutex<AncestorCache>,
     store: Mutex<Store>,
     persistence: Mutex<Option<persistence::Persistence>>,
     pub operation: Mutex<()>,
@@ -67,6 +70,7 @@ impl Recovery {
             }
         }
         Self {
+            ancestors: Mutex::new(HashMap::new()),
             store: Mutex::new(store),
             persistence: Mutex::new(result.ok()),
             operation: Mutex::new(()),
@@ -96,7 +100,12 @@ impl Recovery {
             return Err("Launch cannot be captured".into());
         }
         // Observed execs may rewrite argv (npm does); executable and cwd must still agree.
-        if p.cwd() != Some(Path::new(&capture.cwd)) {
+        let actual_cwd = crate::process::inspector::working_directory(root)
+            .map(PathBuf::from)
+            .map_err(|_| "Launch working directory is unavailable")?;
+        let captured_cwd = crate::process::privacy::accessible_path(Path::new(&capture.cwd))
+            .map_err(|_| "Captured working directory is unavailable or protected")?;
+        if actual_cwd != captured_cwd {
             return Err("Launch working directory changed".into());
         }
         let mut context = launch_context::from_capture(&capture, root, Source::ShellObserved);
@@ -155,11 +164,20 @@ impl Recovery {
         Ok(id)
     }
     pub fn enrich(&self, entries: &mut [PortEntry]) {
+        let mut ancestry_cache = self.ancestors.lock().unwrap();
+        ancestry_cache.retain(|(id, parent), _| {
+            entries
+                .iter()
+                .any(|p| p.identity() == Some(*id) && p.parent_pid == *parent)
+        });
         for entry in entries.iter_mut() {
             if entry.protected || entry.identity().is_none() || adapters::excluded(&entry.process) {
                 continue;
             }
-            let ancestors = ancestry::ancestors(entry);
+            let ancestors = ancestry_cache
+                .entry((entry.identity().unwrap(), entry.parent_pid))
+                .or_insert_with(|| ancestry::ancestors(entry))
+                .clone();
             if ancestors.iter().any(|a| adapters::excluded(&a.name)) {
                 continue;
             }
@@ -243,6 +261,15 @@ impl Recovery {
             }
             entry.restartable = record.context.recoverable && entry.protocol == "TCP";
             entry.restart_reason = record.context.reason.clone();
+            // Captured launch evidence takes precedence over reverse engineering.
+            if record.context.source == Source::ShellObserved {
+                entry.cwd = Some(record.context.working_directory.clone());
+                entry.executable = Some(record.context.executable.clone());
+                entry.command = std::iter::once(record.context.executable.clone())
+                    .chain(record.context.args.clone())
+                    .collect();
+                entry.permission_limited = false;
+            }
             entry.launch = Some(record.context.clone());
             let context = record.context.clone();
             drop(store);
@@ -275,6 +302,8 @@ impl Recovery {
             .lock()
             .map_err(|_| "Scanner unavailable")?
             .scan_fresh()?;
+        crate::process::inspector::refresh_for_action(&mut entries);
+        self.enrich(&mut entries);
         self.projects.resolve_changed(&entries);
         self.projects.enrich(&mut entries, false);
         Ok(entries)

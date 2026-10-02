@@ -3,6 +3,7 @@ use crate::ports::models::PortEntry;
 fn owner(pid: u32, start: u64, cwd: &str) -> Observation {
     Observation {
         process: PortEntry {
+            metadata_access: None,
             launch: None,
             id: format!("TCP:127.0.0.1:5173:{pid}"),
             port: 5173,

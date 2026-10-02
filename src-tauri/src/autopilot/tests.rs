@@ -314,6 +314,7 @@ fn classifier_distinguishes_dev_infrastructure_and_blocked_identity() {
         .into_iter()
         .find(|p| p.pid == Some(owner.0.id()))
         .unwrap();
+    crate::process::inspector::enrich(std::slice::from_mut(&mut entry));
     entry.process = "node".into();
     entry.command = vec![
         "node".into(),

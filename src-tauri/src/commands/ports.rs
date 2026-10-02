@@ -25,10 +25,9 @@ pub async fn scan_ports(
                 return Err(error);
             }
         };
-        projects.enrich(&mut entries, true);
-        projects.resolve_changed(&entries);
         projects.enrich(&mut entries, false);
         recovery.enrich(&mut entries);
+        projects.enrich(&mut entries, true);
         if let Ok(mut t) = timeline.lock() {
             if record_history != Some(false) {
                 t.observe(&entries, &projects);

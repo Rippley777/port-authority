@@ -113,7 +113,6 @@ impl Timeline {
         }
         // Resolve only changed identities, through the existing cached Project Awareness engine.
         if !new_entries.is_empty() {
-            projects.resolve_changed(&new_entries);
             projects.enrich(&mut new_entries, false);
             current.extend(new_entries.into_iter().map(|process| {
                 let ancestors = ancestry::ancestors(&process);

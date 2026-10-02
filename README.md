@@ -49,7 +49,7 @@ Quit any separately started Vite server on port 1420 before running `npm run des
 
 ## Project Awareness
 
-Ports and processes now show the project behind each service. The Rust resolver uses working directories, nearby manifests, executable paths, and parent metadata; it enriches the UI asynchronously without holding up socket scans. Open **Projects** to group running services, pin workspaces, revisit recent projects, and launch your preferred editor or terminal.
+Ports and processes now show the project behind each service. The Rust resolver uses accessible working directories and nearby manifests; it enriches the UI asynchronously without holding up socket scans. Open **Projects** to group running services, pin workspaces, revisit recent projects, and launch your preferred editor or terminal.
 
 Project names, repository paths, and `~/…` paths are searchable. Project details and actions are shared by the ports table, process drawer, context menu, command palette, and Conflict Autopilot. Configure applications in **Settings → Project applications**.
 
@@ -104,7 +104,7 @@ shell/               Optional bash/zsh integration
 
 The discovery and control modules do not depend on Tauri. The desktop commands move blocking work to worker threads. Socket discovery uses [netstat2](https://docs.rs/netstat2/0.11.2/netstat2/); process inspection uses [sysinfo](https://docs.rs/sysinfo/0.33.1/sysinfo/). Socket discovery spawns no shell commands. Project enrichment separately uses bounded local Git subprocesses with explicit argument vectors. macOS uses libproc, Linux uses netlink/procfs, and Windows uses IP Helper APIs through the shared socket adapter. Platform-specific process control stays in `platform/`.
 
-A retained `sysinfo::System` provides CPU sampling across scans. Command, executable, and working-directory metadata refresh with each scan so process changes cannot retain a stale project association. The scanner refreshes relevant and cached process IDs, removes dead processes, and caps its cache at 4,096 entries. Scans never overlap in the UI. Full bounded snapshots cross IPC; the frontend reconciles unchanged row objects rather than resetting the table. Delta-only IPC and virtualization are future optimizations if profiling requires them.
+On macOS, core discovery uses BSD process identity and task counters without requesting working directories, command lines, or environments. Optional metadata is resolved asynchronously and cached by PID plus start time; denied lookups do not retry on a timer. Explicit metadata refresh can update same-process exec/chdir changes. Other platforms retain sysinfo sampling. See [macOS process privacy](docs/macos-process-privacy.md) for the confirmed App Data prompt cause, path policy, diagnostics, and manual acceptance checks. Scans never overlap in the UI. Full bounded snapshots cross IPC; the frontend reconciles unchanged row objects rather than resetting the table. Delta-only IPC and virtualization are future optimizations if profiling requires them.
 
 Settings and favorites use validated webview storage. Port Timeline uses a local SQLite database with 30-day retention by default, configurable from 24 hours to forever. Event snapshots retain process commands and project metadata; disabling recording preserves saved history. Clear History removes retained events and monitoring sessions. CPU is initially zero until a second scan; process uptime is the process age, not socket age.
 

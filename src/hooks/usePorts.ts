@@ -24,16 +24,15 @@ export function usePorts(settings: Settings) {
         const enrich = (current: PortEntry[]) =>
           current.map((p) => {
             const next = updates.get(p.id);
-            if (
-              !next ||
-              p.startedAt !== next.startedAt ||
-              p.cwd !== next.cwd ||
-              p.executable !== next.executable ||
-              JSON.stringify(p.command) !== JSON.stringify(next.command)
-            )
+            if (!next || p.startedAt !== next.startedAt || p.pid !== next.pid)
               return p;
             return {
               ...p,
+              cwd: next.cwd,
+              executable: next.executable,
+              command: next.command,
+              metadataAccess: next.metadataAccess,
+              permissionLimited: next.permissionLimited,
               project: next.project,
               serviceName: next.serviceName,
             };

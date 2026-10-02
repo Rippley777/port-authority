@@ -87,10 +87,13 @@ impl Autopilot {
         });
     }
     fn scan(&self) -> Result<Vec<PortEntry>, String> {
-        self.scanner
+        let mut entries = self
+            .scanner
             .lock()
             .map_err(|_| "Socket scanner is unavailable".to_owned())?
-            .scan()
+            .scan()?;
+        crate::process::inspector::enrich(&mut entries);
+        Ok(entries)
     }
     pub fn observe_launch(
         &self,
@@ -114,7 +117,7 @@ impl Autopilot {
         capture.validate()?;
         let port = detector::detect(&capture.error, capture.exit_code != 0)
             .ok_or("The output does not identify one unambiguous occupied port.")?;
-        let (entries, observed) = {
+        let (mut entries, observed) = {
             let mut scanner = self
                 .scanner
                 .lock()
@@ -122,6 +125,7 @@ impl Autopilot {
             let before = scanner.observed_identities();
             (scanner.scan()?, before)
         };
+        crate::process::inspector::enrich(&mut entries);
         let owners: Vec<_> = entries
             .iter()
             .filter(|p| p.port == port && p.protocol == "TCP")
@@ -538,11 +542,12 @@ impl Autopilot {
         self.launch(&view.id, capture, port, action == Action::RestartOwner)
     }
     fn verify_owner(&self, view: &Conflict) -> Result<Option<PortEntry>, String> {
-        let entries = self
+        let mut entries = self
             .scanner
             .lock()
             .map_err(|_| "Socket scanner is unavailable")?
             .scan_fresh()?;
+        crate::process::inspector::refresh_for_action(&mut entries);
         if port_free(view.port, &entries) {
             return Ok(None);
         }

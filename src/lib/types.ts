@@ -1,6 +1,17 @@
 import type { ProjectIdentity } from "../features/projects/types";
 export type Protocol = "TCP" | "UDP";
+export type MetadataAccessState =
+  | "available"
+  | "permissionDenied"
+  | "protectedResource"
+  | "unsupported"
+  | "unknown";
 export interface PortEntry {
+  metadataAccess?: {
+    cwd: MetadataAccessState;
+    executable: MetadataAccessState;
+    command: MetadataAccessState;
+  } | null;
   launch?: import("../features/recovery/types").LaunchContext | null;
   project?: ProjectIdentity | null;
   serviceName?: string | null;

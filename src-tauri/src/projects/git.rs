@@ -9,6 +9,8 @@ use std::{
 
 // Isolated from the socket scan. Bounded output, deadline, no hooks, no network.
 pub fn output(root: &Path, args: &[&str]) -> Option<String> {
+    crate::process::privacy::accessible_path(root).ok()?;
+    crate::process::privacy::trace(0, "git_metadata", "begin");
     let mut child = Command::new("git")
         .arg("--no-optional-locks")
         .args([

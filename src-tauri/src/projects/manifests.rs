@@ -17,6 +17,7 @@ pub const MARKERS: &[&str] = &[
     "compose.yaml",
 ];
 pub fn read_small(path: &Path) -> Option<String> {
+    crate::process::privacy::accessible_path(path).ok()?;
     read_bounded(path, 256 * 1024)
 }
 pub fn read_bounded(path: &Path, limit: u64) -> Option<String> {
@@ -31,7 +32,11 @@ pub fn read_bounded(path: &Path, limit: u64) -> Option<String> {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
     }
-    let file = options.open(path).ok()?;
+    crate::process::privacy::trace(0, "read_manifest", "begin");
+    let file = options
+        .open(path)
+        .inspect_err(|e| crate::process::privacy::observe_error(path, e))
+        .ok()?;
     if !file.metadata().ok()?.is_file() {
         return None;
     }
@@ -41,22 +46,30 @@ pub fn read_bounded(path: &Path, limit: u64) -> Option<String> {
 }
 
 pub fn markers(path: &Path) -> Vec<String> {
-    let mut found: Vec<_> = MARKERS
+    if crate::process::privacy::accessible_path(path).is_err() {
+        return vec![];
+    }
+    let found: Vec<_> = MARKERS
         .iter()
-        .filter(|m| path.join(m).is_file())
+        .filter(|m| {
+            crate::process::privacy::accessible_path(&path.join(m)).is_ok_and(|p| p.is_file())
+        })
         .map(|m| m.to_string())
         .collect();
-    if let Ok(entries) = path.read_dir() {
-        // A bounded, single-directory listing, never a recursive traversal.
-        for entry in entries.take(256).flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if (name.ends_with(".sln") || name.ends_with(".csproj"))
-                && entry.file_type().is_ok_and(|t| t.is_file())
+    // Never enumerate arbitrary process directories. The previous read_dir here
+    // blocked in opendir/open while macOS displayed the App Data consent dialog.
+    let mut found = found;
+    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        for extension in ["sln", "csproj"] {
+            let marker = format!("{name}.{extension}");
+            if crate::process::privacy::accessible_path(&path.join(&marker))
+                .is_ok_and(|p| p.is_file())
             {
-                found.push(name);
+                found.push(marker);
             }
         }
     }
+
     found
 }
 #[derive(Default)]

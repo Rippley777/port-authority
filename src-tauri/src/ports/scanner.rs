@@ -2,12 +2,16 @@ use super::models::PortEntry;
 use crate::{platform, process::inspector};
 use netstat2::{ProtocolSocketInfo, TcpState};
 use std::collections::HashSet;
-use sysinfo::{Pid, ProcessesToUpdate, System, Users};
+#[cfg(not(target_os = "macos"))]
+use sysinfo::ProcessesToUpdate;
+use sysinfo::{Pid, System, Users};
 
 pub struct Scanner {
     system: System,
     users: Users,
     observed: HashSet<crate::process::ProcessIdentity>,
+    #[cfg(target_os = "macos")]
+    samples: std::collections::HashMap<crate::process::ProcessIdentity, (std::time::Instant, u64)>,
 }
 impl Default for Scanner {
     fn default() -> Self {
@@ -20,6 +24,8 @@ impl Scanner {
             system: System::new(),
             users: Users::new_with_refreshed_list(),
             observed: HashSet::new(),
+            #[cfg(target_os = "macos")]
+            samples: Default::default(),
         }
     }
     pub fn scan_fresh(&mut self) -> Result<Vec<PortEntry>, String> {
@@ -53,17 +59,18 @@ impl Scanner {
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
-        // Include cached PIDs so sysinfo removes dead processes. Metadata is refreshed only
-        // when missing; a hard cache cap protects long-running sessions.
-        let refresh_pids: Vec<Pid> = pids
+        // Non-macOS sampling keeps cached PIDs to remove dead processes. macOS
+        // uses BSD identity/task counters below and never refreshes sysinfo here.
+        let _refresh_pids: Vec<Pid> = pids
             .iter()
             .copied()
             .chain(self.system.processes().keys().copied())
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
+        #[cfg(not(target_os = "macos"))]
         self.system.refresh_processes_specifics(
-            ProcessesToUpdate::Some(&refresh_pids),
+            ProcessesToUpdate::Some(&_refresh_pids),
             true,
             inspector::refresh_kind(),
         );
@@ -96,7 +103,7 @@ impl Scanner {
                     .unwrap_or(true)
                     || system;
                 entries.push(PortEntry {
-                    launch: None, project: None, service_name: None,
+                    metadata_access: None, launch: None, project: None, service_name: None,
                     id: format!("{protocol}:{address}:{port}:{}", pid.map(|p| p.to_string()).unwrap_or_default()),
                     port, protocol: protocol.into(), address: address.to_string(), pid, process: name,
                     command: process.map(|p| p.cmd().iter().map(|a| a.to_string_lossy().into_owned()).collect()).unwrap_or_default(),
@@ -110,8 +117,57 @@ impl Scanner {
                     restart_reason: "The original environment and process supervisor cannot be safely reproduced.".into(),
                     permission_limited,
                 });
+                #[cfg(target_os = "macos")]
+                if let Some(basic) = pid.and_then(|id| inspector::basic(id).ok()) {
+                    let entry = entries.last_mut().unwrap();
+                    entry.process = basic.name;
+                    entry.started_at = Some(basic.started_at).filter(|t| *t > 0);
+                    entry.parent_pid = Some(basic.parent).filter(|p| *p > 0);
+                    entry.user = Some(
+                        self.users
+                            .iter()
+                            .find(|u| u.id().to_string() == basic.uid.to_string())
+                            .map(|u| u.name().to_owned())
+                            .unwrap_or_else(|| basic.uid.to_string()),
+                    );
+                    entry.memory = basic.memory;
+                    if let (Some(identity), Some(cpu_time)) = (entry.identity(), basic.cpu_time) {
+                        let now = std::time::Instant::now();
+                        entry.cpu = Some(
+                            self.samples
+                                .get(&identity)
+                                .map(|(at, previous)| {
+                                    (cpu_time.saturating_sub(*previous) as f64
+                                        / now.duration_since(*at).as_nanos().max(1) as f64
+                                        * 100.0) as f32
+                                })
+                                .unwrap_or(0.0),
+                        );
+                        // Multiple sockets for one process share the previous scan's sample.
+                    }
+                    entry.system = basic.uid != unsafe { libc::geteuid() };
+                    entry.protected =
+                        entry.system || platform::protected(pid.unwrap(), &entry.process);
+                    entry.permission_limited = false;
+                }
             }
         }
+        #[cfg(target_os = "macos")]
+        {
+            let identities: HashSet<_> = entries.iter().filter_map(PortEntry::identity).collect();
+            self.samples.retain(|id, _| identities.contains(id));
+            for id in identities {
+                if let Ok(p) = inspector::basic(id.pid) {
+                    if p.started_at == id.started_at {
+                        if let Some(cpu_time) = p.cpu_time {
+                            self.samples
+                                .insert(id, (std::time::Instant::now(), cpu_time));
+                        }
+                    }
+                }
+            }
+        }
+        inspector::apply_cached(&mut entries);
         entries.sort_by(|a, b| a.port.cmp(&b.port).then_with(|| a.id.cmp(&b.id)));
         entries.dedup_by(|a, b| a.id == b.id);
         if self.observed.len() > 4096 {

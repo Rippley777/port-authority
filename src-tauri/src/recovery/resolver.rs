@@ -1,13 +1,22 @@
+#[cfg(not(target_os = "macos"))]
 use super::{adapters, launch_context, models::*};
+#[cfg(target_os = "macos")]
+use crate::process::{controller, ProcessIdentity};
+#[cfg(not(target_os = "macos"))]
 use crate::{
     autopilot::capture::Capture,
     ports::models::PortEntry,
     process::{controller, inspector, ProcessIdentity},
     timeline::models::Ancestor,
 };
+#[cfg(not(target_os = "macos"))]
 use std::collections::BTreeMap;
+#[cfg(target_os = "macos")]
+use sysinfo::Pid;
+#[cfg(not(target_os = "macos"))]
 use sysinfo::{Pid, ProcessesToUpdate, System, UpdateKind};
 
+#[cfg(not(target_os = "macos"))]
 pub fn inspect(
     entry: &PortEntry,
     ancestors: &[Ancestor],
@@ -87,6 +96,18 @@ pub fn inspect(
         context.reason = "Original launch command or environment could not be determined. Configure a recovery command or launch through shell integration.".into();
     }
     Some((context, complete.then_some(c)))
+}
+#[cfg(target_os = "macos")]
+pub fn inspect(
+    _entry: &crate::ports::models::PortEntry,
+    _ancestors: &[crate::timeline::models::Ancestor],
+) -> Option<(
+    super::models::LaunchContext,
+    Option<crate::autopilot::capture::Capture>,
+)> {
+    // Original environments are supplied only by opt-in shell capture. Reading
+    // unrelated process environments is not a requirement of monitoring.
+    None
 }
 pub fn alive(identity: ProcessIdentity) -> bool {
     controller::inspect_identity(identity.pid, Some(identity.started_at))

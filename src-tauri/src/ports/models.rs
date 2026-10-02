@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct PortEntry {
     #[serde(default)]
+    pub metadata_access: Option<crate::process::inspector::MetadataAccess>,
+    #[serde(default)]
     pub launch: Option<crate::recovery::models::LaunchContext>,
     #[serde(default)]
     pub project: Option<crate::projects::models::ProjectIdentity>,
