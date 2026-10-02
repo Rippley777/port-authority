@@ -62,6 +62,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::recovery::recovery_restart,
+            commands::recovery::recovery_run_again,
+            commands::recovery::recovery_history,
+            commands::recovery::recovery_pin_command,
+            commands::recovery::recovery_remove_run,
             commands::recovery::recovery_status,
             commands::recovery::recovery_inspect,
             commands::recovery::recovery_profile,

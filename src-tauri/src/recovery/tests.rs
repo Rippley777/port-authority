@@ -296,6 +296,82 @@ fn pid_reuse_does_not_correlate() {
 
 #[cfg(unix)]
 #[test]
+fn stopped_launch_can_run_again_and_creates_grouped_history_without_duplicates() {
+    let mut fixture = Fixture::new();
+    let port = port();
+    let capture = fixture.capture(&[port]);
+    let entry = fixture.start(&capture);
+    let engine = fixture.engine();
+    let id = engine.observe(capture, entry.identity().unwrap()).unwrap();
+    let mut entries = engine.scan().unwrap();
+    engine.enrich(&mut entries);
+    assert_eq!(
+        engine
+            .history(HistoryQuery {
+                port: Some(port),
+                ..Default::default()
+            })
+            .unwrap()
+            .runs
+            .len(),
+        1
+    );
+
+    fixture.children.last_mut().unwrap().kill().unwrap();
+    fixture.children.last_mut().unwrap().wait().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !port_free(port, &Scanner::new().scan().unwrap()) {
+        assert!(Instant::now() < deadline);
+        thread::sleep(Duration::from_millis(30));
+    }
+    engine.enrich(&mut []);
+
+    let result = engine.run_again(&id, true).unwrap();
+    assert_eq!(result.state, RecoveryState::Running);
+    let root = engine.store.lock().unwrap().records[&id]
+        .context
+        .launch_root;
+    fixture.roots.push(root);
+
+    let history = engine
+        .history(HistoryQuery {
+            port: Some(port),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(history.commands.len(), 1);
+    assert_eq!(history.commands[0].run_count, 2);
+    assert_eq!(history.commands[0].typical_ports, vec![port]);
+    assert!(history.commands[0].active);
+    assert!(engine
+        .run_again(&id, true)
+        .unwrap_err()
+        .contains("already be running"));
+
+    engine.pin_command(port, &id, true).unwrap();
+    let history = engine
+        .history(HistoryQuery {
+            port: Some(port),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(history.commands[0].pinned_ports, vec![port]);
+    for run in history.runs {
+        engine.remove_run(&run.id).unwrap();
+    }
+    let history = engine
+        .history(HistoryQuery {
+            port: Some(port),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(history.commands.len(), 1);
+    assert_eq!(history.commands[0].run_count, 0);
+    assert_eq!(history.commands[0].pinned_ports, vec![port]);
+}
+
+#[cfg(unix)]
+#[test]
 fn observed_npm_listener_restarts_the_npm_launch_root_not_the_child() {
     let Some(npm) = crate::autopilot::capture::resolve_executable("npm", Path::new("/")) else {
         return;

@@ -8,12 +8,18 @@ import {
   Search,
   Settings2,
   Star,
+  Play,
   X,
 } from "lucide-react";
 import { useState } from "react";
 import type { Page, PortEntry } from "../lib/types";
 import { filterPorts } from "../lib/ports";
 import { Modal } from "./Modal";
+import {
+  historicalCommandNeedsConfirmation,
+  runHistoricalCommand,
+} from "../features/recovery/api";
+import { useRunHistory } from "../features/recovery/useRunHistory";
 export function CommandPalette({
   close,
   navigate,
@@ -21,6 +27,8 @@ export function CommandPalette({
   ports,
   select,
   search,
+  favorites,
+  notify,
 }: {
   close: () => void;
   navigate: (page: Page) => void;
@@ -28,8 +36,11 @@ export function CommandPalette({
   ports: PortEntry[];
   select: (p: PortEntry) => void;
   search: (value: string) => void;
+  favorites: number[];
+  notify: (message: string, error?: boolean) => void;
 }) {
   const projects = useProjectContext();
+  const history = useRunHistory({ limit: 100 });
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const commands = [
@@ -107,12 +118,68 @@ export function CommandPalette({
         .map((command) => ({ ...command, shortcut: p.displayPath })),
     )
     .slice(0, 40);
+  const historicalCommands = (history.data?.commands ?? [])
+    .filter(
+      (command) =>
+        command.launchContext.recoverable &&
+        !historicalCommandNeedsConfirmation(command.launchContext),
+    )
+    .filter((command) => {
+      const value =
+        `${command.latestRun.projectName ?? ""} ${command.launchContext.command} ${command.launchContext.workingDirectory}`.toLowerCase();
+      return (
+        query &&
+        query
+          .toLowerCase()
+          .split(/\s+/)
+          .filter(Boolean)
+          .every((term) => value.includes(term))
+      );
+    })
+    .sort((a, b) => {
+      const aPriority = a.pinnedPorts.some((port) => favorites.includes(port))
+        ? 2
+        : a.typicalPorts.some((port) => favorites.includes(port))
+          ? 1
+          : 0;
+      const bPriority = b.pinnedPorts.some((port) => favorites.includes(port))
+        ? 2
+        : b.typicalPorts.some((port) => favorites.includes(port))
+          ? 1
+          : 0;
+      return (
+        bPriority - aPriority || b.latestRun.startedAt - a.latestRun.startedAt
+      );
+    })
+    .slice(0, 12)
+    .map((command) => {
+      const active = command.active
+        ? ports.find(
+            (entry) =>
+              entry.launch?.id === command.launchContext.id ||
+              entry.project?.rootPath === command.launchContext.projectId,
+          )
+        : undefined;
+      return {
+        name: `${active ? "Open" : "Run"} ${command.latestRun.projectName ?? command.latestRun.processName ?? "command"} — ${command.launchContext.command}`,
+        icon: active ? ArrowRight : Play,
+        shortcut: command.typicalPorts.map((port) => `:${port}`).join(" "),
+        run: () => {
+          if (active) select(active);
+          else
+            void runHistoricalCommand(command.launchContext.id)
+              .then((result) => notify(result.message))
+              .catch((reason) => notify(String(reason), true));
+        },
+      };
+    });
   const options: {
     name: string;
     icon: typeof Search;
     shortcut?: string;
     run: () => void;
   }[] = [
+    ...historicalCommands,
     ...projectCommands,
     ...matched,
     ...commands.filter((c) =>

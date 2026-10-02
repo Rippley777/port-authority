@@ -20,6 +20,7 @@ export interface LaunchContext {
   recoverable: boolean;
   reason: string;
   relaunchedAt: number | null;
+  fingerprint?: string;
 }
 export interface LaunchProfile {
   projectId: string;
@@ -35,6 +36,48 @@ export interface RecoveryStatus {
   newPid: number | null;
   ports: number[];
   output: string;
+}
+export type CommandRunState =
+  "RUNNING" | "COMPLETED" | "FAILED" | "STOPPED" | "UNVERIFIED";
+export interface RunPort {
+  port: number;
+  protocol: string;
+  address: string;
+}
+export interface CommandRun {
+  id: string;
+  launchContextId: string;
+  fingerprint: string;
+  startedAt: number;
+  endedAt: number | null;
+  exitCode: number | null;
+  terminationReason: string | null;
+  state: CommandRunState;
+  projectId: string | null;
+  projectName: string | null;
+  processName: string | null;
+  observedPorts: RunPort[];
+  processIdentity: ProcessIdentity | null;
+}
+export interface HistoricalCommand {
+  launchContext: LaunchContext;
+  latestRun: CommandRun;
+  runCount: number;
+  typicalPorts: number[];
+  pinnedPorts: number[];
+  active: boolean;
+}
+export interface RunHistoryPage {
+  commands: HistoricalCommand[];
+  runs: CommandRun[];
+  storageError: string | null;
+}
+export interface HistoryQuery {
+  search?: string;
+  state?: string;
+  since?: number;
+  port?: number;
+  limit?: number;
 }
 export const launchSources = {
   shell_observed: "Observed from terminal",

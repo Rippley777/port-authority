@@ -1,7 +1,7 @@
 use crate::{
     process::ProcessIdentity,
     recovery::{
-        models::{LaunchProfile, RecoveryStatus},
+        models::{HistoryQuery, LaunchProfile, RecoveryStatus, RunHistoryPage},
         RecoveryStateHandle,
     },
 };
@@ -15,6 +15,53 @@ pub async fn recovery_restart(
 ) -> Result<RecoveryStatus, String> {
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || state.restart(&id, identity, port, force))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn recovery_run_again(
+    id: String,
+    confirmed: bool,
+    state: tauri::State<'_, RecoveryStateHandle>,
+) -> Result<RecoveryStatus, String> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || state.run_again(&id, confirmed))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn recovery_history(
+    query: HistoryQuery,
+    state: tauri::State<'_, RecoveryStateHandle>,
+) -> Result<RunHistoryPage, String> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || state.history(query))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn recovery_pin_command(
+    port: u16,
+    id: String,
+    pinned: bool,
+    state: tauri::State<'_, RecoveryStateHandle>,
+) -> Result<(), String> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || state.pin_command(port, &id, pinned))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn recovery_remove_run(
+    id: String,
+    state: tauri::State<'_, RecoveryStateHandle>,
+) -> Result<(), String> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || state.remove_run(&id))
         .await
         .map_err(|e| e.to_string())?
 }

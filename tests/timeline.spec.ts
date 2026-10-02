@@ -5,6 +5,7 @@ async function openHistory(page: Page) {
     .getByRole("navigation", { name: "Main navigation" })
     .getByRole("button", { name: "History", exact: true })
     .click();
+  await page.getByRole("tab", { name: "Port Timeline", exact: true }).click();
 }
 test("row timeline reveals recurring parent, historic snapshots and scoped filters", async ({
   page,
@@ -105,6 +106,7 @@ test("retention settings persist and clearing is a deliberate action", async ({
     .getByRole("navigation", { name: "Main navigation" })
     .getByRole("button", { name: "History", exact: true })
     .click();
+  await page.getByRole("tab", { name: "Port Timeline", exact: true }).click();
   await expect(page.locator(".timeline-event")).toHaveCount(4);
   await page
     .getByRole("button", { name: "Clear History", exact: true })

@@ -99,10 +99,21 @@ impl Recovery {
         if p.cwd() != Some(Path::new(&capture.cwd)) {
             return Err("Launch working directory changed".into());
         }
-        let context = launch_context::from_capture(&capture, root, Source::ShellObserved);
+        let mut context = launch_context::from_capture(&capture, root, Source::ShellObserved);
+        let mut store = self.store.lock().map_err(|_| "Recovery unavailable")?;
+        if let Some((id, previous)) = store.records.iter().find(|(_, record)| {
+            record.context.executable == context.executable
+                && record.context.args == context.args
+                && record.context.working_directory == context.working_directory
+                && record.context.kind == context.kind
+                && record.context.shell == context.shell
+        }) {
+            context.id = id.clone();
+            context.project_id = previous.context.project_id.clone();
+            context.fingerprint = CommandFingerprint::from_context(&context).key();
+        }
         let id = context.id.clone();
         self.persist(&context)?;
-        let mut store = self.store.lock().map_err(|_| "Recovery unavailable")?;
         if store.records.len() >= 512 {
             store
                 .records
@@ -114,10 +125,17 @@ impl Recovery {
         store.records.insert(
             id.clone(),
             Record {
-                context,
+                context: context.clone(),
                 capture: Some(capture),
             },
         );
+        drop(store);
+        self.persistence
+            .lock()
+            .map_err(|_| "Recovery storage unavailable")?
+            .as_ref()
+            .ok_or("Recovery storage unavailable")?
+            .start_run(&context)?;
         Ok(id)
     }
     pub fn observe_relaunch(
@@ -137,7 +155,7 @@ impl Recovery {
         Ok(id)
     }
     pub fn enrich(&self, entries: &mut [PortEntry]) {
-        for entry in entries {
+        for entry in entries.iter_mut() {
             if entry.protected || entry.identity().is_none() || adapters::excluded(&entry.process) {
                 continue;
             }
@@ -200,6 +218,8 @@ impl Recovery {
             let record = store.records.get_mut(&id).unwrap();
             if record.context.project_id != project && project.is_some() {
                 record.context.project_id = project;
+                record.context.fingerprint =
+                    CommandFingerprint::from_context(&record.context).key();
                 let _ = self.persist(&record.context);
             }
             // A fallback recipe must not silently replace a newly observed package manager.
@@ -216,6 +236,7 @@ impl Recovery {
                     context.captured_at = record.context.captured_at;
                     context.project_id = Some(profile.project_id);
                     context.relaunched_at = record.context.relaunched_at;
+                    context.fingerprint = CommandFingerprint::from_context(&context).key();
                     record.context = context;
                     record.capture = Some(capture);
                 }
@@ -223,6 +244,29 @@ impl Recovery {
             entry.restartable = record.context.recoverable && entry.protocol == "TCP";
             entry.restart_reason = record.context.reason.clone();
             entry.launch = Some(record.context.clone());
+            let context = record.context.clone();
+            drop(store);
+            if let Ok(persistence) = self.persistence.lock() {
+                if let Some(persistence) = persistence.as_ref() {
+                    let _ = persistence.start_run(&context);
+                    let _ = persistence.refresh_active_context(&context);
+                    let _ = persistence.observe_port(&context, entry);
+                }
+            }
+        }
+        if let (Ok(store), Ok(persistence)) = (self.store.lock(), self.persistence.lock()) {
+            if let Some(persistence) = persistence.as_ref() {
+                for (id, record) in &store.records {
+                    if !resolver::alive(record.context.launch_root) {
+                        let _ = persistence.finish_run(
+                            id,
+                            CommandRunState::Stopped,
+                            "The process is no longer running.",
+                            None,
+                        );
+                    }
+                }
+            }
         }
     }
     pub(crate) fn scan(&self) -> Result<Vec<PortEntry>, String> {
@@ -493,6 +537,16 @@ impl Recovery {
             record.context.relaunched_at = Some(now());
             let _ = self.persist(&record.context);
         }
+        let launched_context = self
+            .store
+            .lock()
+            .ok()
+            .and_then(|store| store.records.get(id).map(|record| record.context.clone()));
+        if let (Some(context), Ok(persistence)) = (launched_context, self.persistence.lock()) {
+            if let Some(persistence) = persistence.as_ref() {
+                let _ = persistence.start_run(&context);
+            }
+        }
         self.update(id, VerifyingProcess, "Checking the new process identity…");
         if root.started_at == 0 || !resolver::alive(root) {
             return Err((
@@ -559,6 +613,441 @@ impl Recovery {
             std::thread::sleep(Duration::from_millis(300));
         }
     }
+    pub fn history(&self, query: HistoryQuery) -> Result<RunHistoryPage, String> {
+        let (mut runs, persisted_contexts, pinned) = {
+            let persistence = self
+                .persistence
+                .lock()
+                .map_err(|_| "Run history unavailable")?;
+            let persistence = persistence.as_ref().ok_or("Run history unavailable")?;
+            (
+                persistence.runs(5000)?,
+                persistence.contexts()?,
+                persistence.pinned()?,
+            )
+        };
+        let runtime_contexts: HashMap<_, _> = self
+            .store
+            .lock()
+            .map_err(|_| "Recovery unavailable")?
+            .records
+            .iter()
+            .map(|(id, record)| (id.clone(), record.context.clone()))
+            .collect();
+        let mut contexts: HashMap<_, _> = persisted_contexts
+            .into_iter()
+            .map(|context| (context.id.clone(), context))
+            .collect();
+        contexts.extend(runtime_contexts);
+        let search = query.search.unwrap_or_default().to_lowercase();
+        let state = query.state.unwrap_or_default().to_uppercase();
+        runs.retain(|run| {
+            let Some(context) = contexts.get(&run.launch_context_id) else {
+                return false;
+            };
+            let haystack = format!(
+                "{} {} {} {} {} {}",
+                run.project_name.as_deref().unwrap_or_default(),
+                run.project_id.as_deref().unwrap_or_default(),
+                run.process_name.as_deref().unwrap_or_default(),
+                context.command,
+                context.working_directory,
+                run.observed_ports
+                    .iter()
+                    .map(|port| port.port.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )
+            .to_lowercase();
+            let matches_search = search
+                .split_whitespace()
+                .all(|term| haystack.contains(term));
+            let matches_state = state.is_empty()
+                || match state.as_str() {
+                    "COMPLETED" => run.state == CommandRunState::Completed,
+                    "FAILED" => run.state == CommandRunState::Failed,
+                    "STOPPED" => run.state == CommandRunState::Stopped,
+                    "RUNNING" => run.state == CommandRunState::Running,
+                    _ => true,
+                };
+            let matches_time = query.since.is_none_or(|since| run.started_at >= since);
+            let matches_port = query.port.is_none_or(|port| {
+                run.observed_ports
+                    .iter()
+                    .any(|binding| binding.port == port)
+            });
+            matches_search && matches_state && matches_time && matches_port
+        });
+        let maximum = query.limit.unwrap_or(250).clamp(1, 1000);
+        runs.truncate(maximum);
+
+        let mut groups: HashMap<String, Vec<CommandRun>> = HashMap::new();
+        for run in &runs {
+            groups
+                .entry(run.fingerprint.clone())
+                .or_default()
+                .push(run.clone());
+        }
+        let mut commands = vec![];
+        for grouped_runs in groups.values() {
+            let latest_run = grouped_runs[0].clone();
+            let Some(context) = contexts.get(&latest_run.launch_context_id).cloned() else {
+                continue;
+            };
+            let mut typical_ports: Vec<_> = grouped_runs
+                .iter()
+                .flat_map(|run| run.observed_ports.iter().map(|port| port.port))
+                .collect();
+            typical_ports.sort_unstable();
+            typical_ports.dedup();
+            let mut pinned_ports: Vec<_> = pinned
+                .iter()
+                .filter(|(_, context_id)| context_id == &context.id)
+                .map(|(port, _)| *port)
+                .collect();
+            pinned_ports.sort_unstable();
+            let active = resolver::alive(context.launch_root)
+                || grouped_runs
+                    .iter()
+                    .any(|run| run.state == CommandRunState::Running);
+            commands.push(HistoricalCommand {
+                launch_context: context,
+                latest_run,
+                run_count: grouped_runs.len(),
+                typical_ports,
+                pinned_ports,
+                active,
+            });
+        }
+        let represented: std::collections::HashSet<_> = commands
+            .iter()
+            .map(|command| command.launch_context.id.clone())
+            .collect();
+        let mut pinned_contexts: HashMap<String, Vec<u16>> = HashMap::new();
+        for (port, context_id) in &pinned {
+            pinned_contexts
+                .entry(context_id.clone())
+                .or_default()
+                .push(*port);
+        }
+        for (context_id, mut pinned_ports) in pinned_contexts {
+            if represented.contains(&context_id)
+                || !state.is_empty()
+                || query.port.is_some_and(|port| !pinned_ports.contains(&port))
+            {
+                continue;
+            }
+            let Some(context) = contexts.get(&context_id).cloned() else {
+                continue;
+            };
+            let haystack = format!(
+                "{} {} {} {}",
+                context.command,
+                context.working_directory,
+                context.project_id.as_deref().unwrap_or_default(),
+                pinned_ports
+                    .iter()
+                    .map(u16::to_string)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )
+            .to_lowercase();
+            if !search
+                .split_whitespace()
+                .all(|term| haystack.contains(term))
+            {
+                continue;
+            }
+            pinned_ports.sort_unstable();
+            pinned_ports.dedup();
+            let last_used = context.relaunched_at.unwrap_or(context.captured_at);
+            let latest_run = CommandRun {
+                id: format!("pinned:{context_id}"),
+                launch_context_id: context_id,
+                fingerprint: context.fingerprint.clone(),
+                started_at: last_used,
+                ended_at: Some(last_used),
+                exit_code: None,
+                termination_reason: Some(
+                    "Pinned command; individual execution history has expired.".into(),
+                ),
+                state: CommandRunState::Stopped,
+                project_id: context.project_id.clone(),
+                project_name: None,
+                process_name: None,
+                observed_ports: pinned_ports
+                    .iter()
+                    .map(|port| RunPort {
+                        port: *port,
+                        protocol: "TCP".into(),
+                        address: String::new(),
+                    })
+                    .collect(),
+                process_identity: None,
+            };
+            let active = resolver::alive(context.launch_root);
+            commands.push(HistoricalCommand {
+                launch_context: context,
+                latest_run,
+                run_count: 0,
+                typical_ports: pinned_ports.clone(),
+                pinned_ports,
+                active,
+            });
+        }
+        commands.sort_by_key(|command| std::cmp::Reverse(command.latest_run.started_at));
+        Ok(RunHistoryPage {
+            commands,
+            runs,
+            storage_error: self.storage_error.clone(),
+        })
+    }
+
+    pub fn pin_command(&self, port: u16, context_id: &str, pinned: bool) -> Result<(), String> {
+        if port == 0 {
+            return Err("Choose a port from 1–65535.".into());
+        }
+        if !self
+            .store
+            .lock()
+            .map_err(|_| "Recovery unavailable")?
+            .records
+            .contains_key(context_id)
+        {
+            return Err("Launch context unavailable.".into());
+        }
+        self.persistence
+            .lock()
+            .map_err(|_| "Run history unavailable")?
+            .as_ref()
+            .ok_or("Run history unavailable")?
+            .pin(port, context_id, pinned)
+    }
+
+    pub fn remove_run(&self, id: &str) -> Result<(), String> {
+        self.persistence
+            .lock()
+            .map_err(|_| "Run history unavailable")?
+            .as_ref()
+            .ok_or("Run history unavailable")?
+            .remove_run(id)
+    }
+
+    pub fn run_again(&self, id: &str, confirmed: bool) -> Result<RecoveryStatus, String> {
+        let _operation = self
+            .operation
+            .try_lock()
+            .map_err(|_| "Another recovery is in progress")?;
+        let (mut context, capture) = {
+            let store = self.store.lock().map_err(|_| "Recovery unavailable")?;
+            let record = store.records.get(id).ok_or("Launch context unavailable")?;
+            (
+                record.context.clone(),
+                record
+                    .capture
+                    .clone()
+                    .ok_or_else(|| record.context.reason.clone())?,
+            )
+        };
+        safety::validate_launch(&context, &capture)?;
+        if safety::requires_confirmation(&context, &capture) && !confirmed {
+            return Err("Confirmation required: this recovered command is outside the standard development-command adapters. Review its exact arguments and working directory before running it.".into());
+        }
+        if self
+            .store
+            .lock()
+            .map_err(|_| "Recovery unavailable")?
+            .records
+            .values()
+            .any(|record| {
+                record.context.fingerprint == context.fingerprint
+                    && resolver::alive(record.context.launch_root)
+            })
+        {
+            return Err(format!(
+                "This command appears to already be running. Open or Restart it instead: {}",
+                context.command
+            ));
+        }
+        let expected_ports: Vec<u16> = {
+            let persistence = self
+                .persistence
+                .lock()
+                .map_err(|_| "Run history unavailable")?;
+            let mut ports: Vec<_> = persistence
+                .as_ref()
+                .ok_or("Run history unavailable")?
+                .runs(5000)?
+                .into_iter()
+                .filter(|run| run.launch_context_id == id)
+                .find(|run| !run.observed_ports.is_empty())
+                .into_iter()
+                .flat_map(|run| run.observed_ports.into_iter().map(|port| port.port))
+                .collect();
+            ports.sort_unstable();
+            ports.dedup();
+            ports
+        };
+        let entries = self.scan()?;
+        if let Some(conflict) = entries
+            .iter()
+            .find(|entry| expected_ports.contains(&entry.port))
+        {
+            return Err(format!(
+                "Cannot run {} on :{}. {} currently owns the port. Inspect the conflict in Conflict Autopilot.",
+                context.command,
+                conflict.port,
+                conflict
+                    .project
+                    .as_ref()
+                    .map(|project| project.name.as_str())
+                    .unwrap_or(&conflict.process)
+            ));
+        }
+        let old_pid = context.launch_root.pid;
+        self.store
+            .lock()
+            .map_err(|_| "Recovery unavailable")?
+            .statuses
+            .insert(
+                id.into(),
+                RecoveryStatus {
+                    state: RecoveryState::Relaunching,
+                    message: format!("Starting {}…", context.command),
+                    old_pid,
+                    new_pid: None,
+                    ports: expected_ports.clone(),
+                    output: String::new(),
+                },
+            );
+        let (root, output) = match executor::launch(capture.clone(), &self.output_directory) {
+            Ok(launched) => launched,
+            Err(error) => {
+                self.update(id, RecoveryState::LaunchFailed, &error);
+                return Err(error);
+            }
+        };
+        context.launch_root = root;
+        context.relaunched_at = Some(now());
+        {
+            let mut store = self.store.lock().map_err(|_| "Recovery unavailable")?;
+            let record = store
+                .records
+                .get_mut(id)
+                .ok_or("Launch context unavailable")?;
+            record.context = context.clone();
+            record.capture = Some(capture);
+            store.outputs.insert(id.into(), output);
+            store.statuses.get_mut(id).unwrap().new_pid = Some(root.pid);
+        }
+        self.persist(&context)?;
+        self.persistence
+            .lock()
+            .map_err(|_| "Run history unavailable")?
+            .as_ref()
+            .ok_or("Run history unavailable")?
+            .start_run(&context)?;
+        self.update(
+            id,
+            RecoveryState::VerifyingProcess,
+            "Checking the new process identity…",
+        );
+        if root.started_at == 0 || !resolver::alive(root) {
+            if let Ok(persistence) = self.persistence.lock() {
+                if let Some(persistence) = persistence.as_ref() {
+                    let _ = persistence.finish_run(
+                        id,
+                        CommandRunState::Failed,
+                        "Command exited before it could be verified.",
+                        None,
+                    );
+                }
+            }
+            self.update(
+                id,
+                RecoveryState::LaunchFailed,
+                "The command exited before its process could be verified. View output.",
+            );
+            return Err(
+                "The command exited before its process could be verified. View output.".into(),
+            );
+        }
+        if expected_ports.is_empty() {
+            self.update(
+                id,
+                RecoveryState::Running,
+                format!(
+                    "{} started. No historical port was available to verify.",
+                    context.command
+                ),
+            );
+            return self.status(id).ok_or("Recovery status unavailable".into());
+        }
+        self.update(
+            id,
+            RecoveryState::VerifyingPort,
+            "Waiting for the expected service ports…",
+        );
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut stable = 0;
+        loop {
+            let mut entries = self.scan()?;
+            self.enrich(&mut entries);
+            let verified = expected_ports.iter().all(|port| {
+                let owners: Vec<_> = entries.iter().filter(|entry| entry.port == *port).collect();
+                !owners.is_empty()
+                    && owners.iter().all(|entry| {
+                        entry.protocol == "TCP"
+                            && correlation::contains(entry, &ancestry::ancestors(entry), root)
+                    })
+            });
+            if verified && resolver::alive(root) {
+                stable += 1;
+            } else {
+                stable = 0;
+            }
+            if stable >= 3 {
+                self.update(
+                    id,
+                    RecoveryState::Running,
+                    format!(
+                        "{} started. Verified ports {}.",
+                        context.command,
+                        expected_ports
+                            .iter()
+                            .map(|port| format!(":{port}"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                );
+                return self.status(id).ok_or("Recovery status unavailable".into());
+            }
+            if !resolver::alive(root) || Instant::now() >= deadline {
+                let message = format!(
+                    "Command launched, but expected ports {} did not appear reliably. View output or inspect the process.",
+                    expected_ports
+                        .iter()
+                        .map(|port| format!(":{port}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+                if let Ok(persistence) = self.persistence.lock() {
+                    if let Some(persistence) = persistence.as_ref() {
+                        if resolver::alive(root) {
+                            let _ = persistence.mark_unverified(id, &message);
+                        } else {
+                            let _ =
+                                persistence.finish_run(id, CommandRunState::Failed, &message, None);
+                        }
+                    }
+                }
+                self.update(id, RecoveryState::ExpectedPortNotOpened, &message);
+                return Err(message);
+            }
+            std::thread::sleep(Duration::from_millis(300));
+        }
+    }
+
     pub fn save_profile(&self, profile: LaunchProfile) -> Result<(), String> {
         self.projects.known(&profile.project_id)?;
         let mut c = profile_capture(&profile)?;
@@ -653,6 +1142,16 @@ impl Recovery {
                     output: String::new(),
                 },
             );
+        }
+        let launched_context = self
+            .store
+            .lock()
+            .ok()
+            .and_then(|store| store.records.get(&id).map(|record| record.context.clone()));
+        if let (Some(context), Ok(persistence)) = (launched_context, self.persistence.lock()) {
+            if let Some(persistence) = persistence.as_ref() {
+                let _ = persistence.start_run(&context);
+            }
         }
         let deadline = Instant::now() + Duration::from_secs(20);
         let mut stable = 0;

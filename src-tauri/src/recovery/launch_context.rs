@@ -131,7 +131,7 @@ pub fn from_capture(c: &Capture, root: ProcessIdentity, source: Source) -> Launc
         Source::ParentProcess => Confidence::Medium,
         _ => Confidence::Low,
     };
-    LaunchContext {
+    let mut context = LaunchContext {
         id: uuid::Uuid::new_v4().to_string(),
         source,
         confidence,
@@ -159,7 +159,10 @@ pub fn from_capture(c: &Capture, root: ProcessIdentity, source: Source) -> Launc
         recoverable: true,
         reason: String::new(),
         relaunched_at: None,
-    }
+        fingerprint: String::new(),
+    };
+    context.fingerprint = CommandFingerprint::from_context(&context).key();
+    context
 }
 
 pub fn command(capture: &Capture) -> Result<std::process::Command, String> {

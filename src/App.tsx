@@ -1,7 +1,8 @@
 import { trackView } from "./lib/analytics";
 import { useEffect, useState } from "react";
-import { TimelinePage } from "./features/timeline/TimelinePage";
 import { TimelineNavigation } from "./features/timeline/useTimeline";
+import { HistoryPage } from "./features/recovery/HistoryPage";
+import { FavoritesPage } from "./features/recovery/FavoritesPage";
 import { ProjectsContext, useProjects } from "./features/projects/useProjects";
 import {
   ProjectsScreen,
@@ -46,8 +47,8 @@ const descriptions: Record<Page, string> = {
   Ports: "Your local ports. A little less mystery.",
   Processes: "The processes behind your local services.",
   Overview: "A little clarity for your local environment.",
-  Favorites: "The ports you care about, all in one place.",
-  History: "What owned this port, and why it keeps coming back.",
+  Favorites: "The ports you care about—and the commands that bring them back.",
+  History: "What you ran, where it ran, and how to run it again.",
   "Check Port": "Find a free port. Or find what’s in the way.",
   Settings: "Make yourself at home.",
 };
@@ -251,7 +252,7 @@ export default function App() {
               {(page === "Ports" ||
                 page === "Overview" ||
                 page === "Processes") && <Stats ports={ports} />}
-              {isTablePage && (
+              {isTablePage && page !== "Favorites" && (
                 <PortWorkspace
                   {...{
                     page,
@@ -286,6 +287,21 @@ export default function App() {
                   }}
                 />
               )}
+              {page === "Favorites" && (
+                <FavoritesPage
+                  favorites={favorites}
+                  ports={ports}
+                  paused={paused}
+                  toggleFavorite={toggleFavorite}
+                  inspect={setSelected}
+                  requestAction={requestAction}
+                  openTimeline={openTimeline}
+                  refreshPorts={refresh}
+                  notify={(message, isError) =>
+                    setToast({ message, error: isError })
+                  }
+                />
+              )}
               {page === "Projects" && <ProjectsScreen inspect={setSelected} />}
               {page === "Overview" && (
                 <Overview
@@ -316,15 +332,19 @@ export default function App() {
                   />
                 ))}
               {page === "History" && (
-                <TimelinePage
-                  port={timelinePort}
-                  selectPort={setTimelinePort}
+                <HistoryPage
+                  initialPort={timelinePort}
                   ports={ports}
                   favorites={favorites}
                   paused={paused}
                   failed={!!error || !lastScan}
                   inspect={setSelected}
                   toggleFavorite={toggleFavorite}
+                  copy={copy}
+                  refreshPorts={refresh}
+                  notify={(message, isError) =>
+                    setToast({ message, error: isError })
+                  }
                 />
               )}
               {page === "Settings" && (
@@ -391,6 +411,10 @@ export default function App() {
                 navigate("Ports");
                 setQuery(value.replace(/^find (port|process) /i, ""));
               }}
+              favorites={favorites}
+              notify={(message, isError) =>
+                setToast({ message, error: isError })
+              }
             />
           )}
           {confirmation && (

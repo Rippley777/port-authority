@@ -28,7 +28,18 @@ impl Repository {
             CREATE INDEX IF NOT EXISTS events_type_time ON port_events(event_type,timestamp);
             CREATE INDEX IF NOT EXISTS events_time ON port_events(timestamp);
             CREATE TABLE IF NOT EXISTS monitoring_sessions (id TEXT PRIMARY KEY, started_at INTEGER NOT NULL, last_observed INTEGER NOT NULL, ended_at INTEGER, reason TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS timeline_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);") .map_err(|e| e.to_string())?;
+            CREATE TABLE IF NOT EXISTS timeline_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS command_runs (
+                id TEXT PRIMARY KEY, launch_context_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
+                started_at INTEGER NOT NULL, ended_at INTEGER, state TEXT NOT NULL,
+                search TEXT NOT NULL, payload TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS run_ports (
+                run_id TEXT NOT NULL, port INTEGER NOT NULL, protocol TEXT NOT NULL,
+                address TEXT NOT NULL, PRIMARY KEY(run_id,port,protocol,address));
+            CREATE TABLE IF NOT EXISTS favorite_commands (
+                port INTEGER NOT NULL, launch_context_id TEXT NOT NULL,
+                is_pinned INTEGER NOT NULL DEFAULT 0, linked_at INTEGER NOT NULL,
+                PRIMARY KEY(port,launch_context_id));") .map_err(|e| e.to_string())?;
         Ok(Self {
             db,
             path: path.into(),
@@ -182,10 +193,22 @@ impl Repository {
                 )
                 .map_err(|e| e.to_string())?;
         }
+        self.db
+            .execute(
+                "DELETE FROM command_runs WHERE started_at<? AND state<>'RUNNING'",
+                [cutoff],
+            )
+            .map_err(|e| e.to_string())?;
+        self.db
+            .execute(
+                "DELETE FROM run_ports WHERE run_id NOT IN (SELECT id FROM command_runs)",
+                [],
+            )
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
     pub fn clear(&self) -> Result<(), String> {
-        self.db.execute_batch("BEGIN; DELETE FROM port_events; DELETE FROM monitoring_sessions; DELETE FROM timeline_state WHERE key='owners'; COMMIT; PRAGMA wal_checkpoint(TRUNCATE); VACUUM;").map_err(|e|e.to_string())
+        self.db.execute_batch("BEGIN; DELETE FROM port_events; DELETE FROM monitoring_sessions; DELETE FROM command_runs; DELETE FROM run_ports; DELETE FROM timeline_state WHERE key='owners'; COMMIT; PRAGMA wal_checkpoint(TRUNCATE); VACUUM;").map_err(|e|e.to_string())
     }
     pub fn bytes(&self) -> u64 {
         [

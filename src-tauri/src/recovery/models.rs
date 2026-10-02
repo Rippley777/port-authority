@@ -50,6 +50,103 @@ pub struct LaunchContext {
     pub reason: String,
     #[serde(default)]
     pub relaunched_at: Option<u64>,
+    /// Stable grouping key. It deliberately excludes PID and timestamps.
+    #[serde(default)]
+    pub fingerprint: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandFingerprint {
+    pub project_id: Option<String>,
+    pub executable: String,
+    pub args: Vec<String>,
+    pub working_directory: String,
+    pub execution_type: LaunchKind,
+    pub shell: Option<String>,
+}
+
+impl CommandFingerprint {
+    pub fn from_context(context: &LaunchContext) -> Self {
+        Self {
+            project_id: context.project_id.clone(),
+            executable: context.executable.clone(),
+            args: context.args.clone(),
+            working_directory: context.working_directory.clone(),
+            execution_type: context.kind.clone(),
+            shell: context.shell.clone(),
+        }
+    }
+
+    pub fn key(&self) -> String {
+        // JSON provides a deterministic, length-delimited representation for this struct.
+        serde_json::to_string(self).expect("CommandFingerprint is serializable")
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum CommandRunState {
+    Running,
+    Completed,
+    Failed,
+    Stopped,
+    Unverified,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunPort {
+    pub port: u16,
+    pub protocol: String,
+    pub address: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandRun {
+    pub id: String,
+    pub launch_context_id: String,
+    pub fingerprint: String,
+    pub started_at: u64,
+    pub ended_at: Option<u64>,
+    pub exit_code: Option<i32>,
+    pub termination_reason: Option<String>,
+    pub state: CommandRunState,
+    pub project_id: Option<String>,
+    pub project_name: Option<String>,
+    pub process_name: Option<String>,
+    pub observed_ports: Vec<RunPort>,
+    pub process_identity: Option<ProcessIdentity>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoricalCommand {
+    pub launch_context: LaunchContext,
+    pub latest_run: CommandRun,
+    pub run_count: usize,
+    pub typical_ports: Vec<u16>,
+    pub pinned_ports: Vec<u16>,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryQuery {
+    pub search: Option<String>,
+    pub state: Option<String>,
+    pub since: Option<u64>,
+    pub port: Option<u16>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunHistoryPage {
+    pub commands: Vec<HistoricalCommand>,
+    pub runs: Vec<CommandRun>,
+    pub storage_error: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

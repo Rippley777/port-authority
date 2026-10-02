@@ -8,6 +8,12 @@
 
 **History** is a local SQLite flight recorder for port ownership. Open **View Timeline** from a port to see claims, releases, restarts, saved process/project metadata, and monitoring gaps. Repeated returns surface persistent ancestors, with explicit process-tree review before stopping anything. History defaults to 30 days and writes only on transitions. [Usage, architecture, and limits](docs/port-timeline.md).
 
+## Run History
+
+**History → Run History** turns captured Command Recovery launches into reusable local launch points. Equivalent commands are grouped by project, executable, arguments, working directory, and execution mode; every execution remains a separate run record with its observed ports and outcome. Search by project, command, directory, process, or port, then use **Run Again** after the original process has stopped.
+
+Run Again uses the canonical captured `LaunchContext`, never display text. It validates the directory and executable, refuses an equivalent active command, checks historically observed ports for conflicts, launches through the existing detached recovery supervisor, and waits for expected listeners before reporting success. Favorite ports show their recent commands and can pin one explicit default. [Behavior, storage, and safety limits](docs/run-history.md).
+
 ## Run
 
 Requires Node.js 20+ (22 recommended), npm, and Rust. `rust-toolchain.toml` selects Rust 1.95.0. Install the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/) first: Xcode command line tools on macOS, WebKitGTK 4.1 and build tools on Linux, or MSVC build tools and WebView2 on Windows.
@@ -64,7 +70,7 @@ See [Conflict Autopilot](docs/conflict-autopilot.md) for setup, safety policy, s
 - Graceful termination on Unix; force termination with mandatory confirmation. Privileged, different-user, critical, and application-owned processes are protected.
 - Browser launch for common HTTP development ports, explicit confirmation for other ports, and copy actions.
 - Persistent favorites, including inactive watched ports; port availability lookup.
-- Overview, bounded local history, settings, and command palette.
+- Overview, grouped command-run history, Port Timeline, settings, and a historical-command-aware command palette.
 - Locally bundled fonts. No analytics, telemetry, cloud service, account, or remote requests on startup.
 
 | Shortcut | Action |

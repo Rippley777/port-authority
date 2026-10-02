@@ -6,6 +6,7 @@ import {
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { demoPorts } from "./demo";
+import { recordPreviewRunStopped } from "../features/recovery/api";
 import type { PortEntry, ProcessAction } from "./types";
 export const desktop = isTauri();
 let previewPorts = [...demoPorts];
@@ -63,8 +64,10 @@ export async function controlProcess(
       action,
     });
   else {
-    for (const p of previewPorts.filter((p) => p.pid === entry.pid))
+    for (const p of previewPorts.filter((p) => p.pid === entry.pid)) {
       recordPreviewRelease(p);
+      recordPreviewRunStopped(p.port);
+    }
     previewPorts = previewPorts.filter((p) => p.pid !== entry.pid);
   }
 }

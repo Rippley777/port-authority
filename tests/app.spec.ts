@@ -78,6 +78,7 @@ test("termination requires confirmation and records history in preview", async (
     .getByRole("navigation", { name: "Main navigation" })
     .getByRole("button", { name: "History", exact: true })
     .click();
+  await page.getByRole("tab", { name: "Port Timeline", exact: true }).click();
   await expect(page.locator(".timeline-event").first()).toContainText(
     "Port released",
   );
