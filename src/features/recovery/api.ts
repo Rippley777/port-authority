@@ -3,14 +3,14 @@ import type {
   CommandRun,
   HistoricalCommand,
   HistoryQuery,
-  LaunchContext,
+  DisplayLaunchContext,
   RecoveryStatus,
   RunHistoryPage,
 } from "./types";
 
 const now = Math.floor(Date.now() / 1000);
 const desktop = isTauri();
-const previewContexts: LaunchContext[] = [
+const previewContexts: DisplayLaunchContext[] = [
   {
     id: "preview-shipwreck-dev",
     source: "shell_observed",
@@ -175,6 +175,15 @@ export async function queryRunHistory(
   return { commands, runs, storageError: null };
 }
 
+export async function getHistoricalLaunchContext(
+  id: string,
+): Promise<DisplayLaunchContext> {
+  if (desktop) return invoke("recovery_context", { id });
+  const context = previewContexts.find((candidate) => candidate.id === id);
+  if (!context) throw new Error("The original launch context is unavailable.");
+  return context;
+}
+
 export async function runHistoricalCommand(
   id: string,
   confirmed = false,
@@ -238,16 +247,19 @@ export async function runHistoricalCommand(
   };
 }
 
-export function historicalCommandNeedsConfirmation(context: LaunchContext) {
+export function historicalCommandNeedsConfirmation(
+  context: DisplayLaunchContext,
+) {
+  if (context.recoveryConfidence === "inferred") return true;
   if (context.source === "user_defined") return false;
-  const executable = context.command
-    .trim()
-    .split(/\s+/, 1)[0]
-    .split("/")
-    .at(-1);
+  const executable = context.executable.split(/[\\/]/).at(-1);
   if (["npm", "pnpm", "yarn", "bun"].includes(executable ?? ""))
     return context.args.length === 0;
-  if (executable === "cargo") return context.args[0] !== "run";
+  if (executable === "cargo")
+    return (
+      context.args[0] !== "run" &&
+      !(context.args[0] === "tauri" && context.args[1] === "dev")
+    );
   if (executable?.startsWith("python")) return context.args.length === 0;
   if (["node", "nodejs"].includes(executable ?? ""))
     return !context.args[0]?.match(

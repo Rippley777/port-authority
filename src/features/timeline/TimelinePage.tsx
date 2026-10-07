@@ -7,13 +7,14 @@ import {
   Circle,
   Star,
 } from "lucide-react";
-import type { PortEntry } from "../../lib/types";
+import type { PortEntry, ProcessAction } from "../../lib/types";
 import { useTimeline } from "./useTimeline";
 import { eventLabels, type TimelineEvent, type Observation } from "./types";
 import { RecurrencePanel } from "./RecurrencePanel";
 import { ProjectActions } from "../projects/ProjectActions";
 import { ownershipSessions } from "../../lib/ownership";
 import { TimelineStorageControls } from "./TimelineSettings";
+import { TimelineRunButton } from "./TimelineRunButton";
 const time = (at: number) =>
   new Date(at * 1000).toLocaleTimeString([], { hour12: false });
 const day = (at: number) =>
@@ -30,7 +31,10 @@ export function TimelinePage({
   failed,
   selectPort,
   inspect,
+  requestAction,
   toggleFavorite,
+  refreshPorts,
+  notify,
 }: {
   port?: number;
   ports: PortEntry[];
@@ -39,7 +43,10 @@ export function TimelinePage({
   failed: boolean;
   selectPort: (port?: number) => void;
   inspect: (p: PortEntry) => void;
+  requestAction: (entry: PortEntry, action: ProcessAction) => void;
   toggleFavorite: (port: number) => void;
+  refreshPorts: () => Promise<unknown>;
+  notify: (message: string, error?: boolean) => void;
 }) {
   const [portText, setPortText] = useState(port ? String(port) : "");
   const [search, setSearch] = useState("");
@@ -63,6 +70,13 @@ export function TimelinePage({
     since,
   });
   const { data } = timeline;
+  const runFinished = (message: string, error?: boolean) => {
+    notify(message, error);
+    if (!error) {
+      void timeline.refresh();
+      void refreshPorts();
+    }
+  };
   const live = ports.filter((p) => p.port === port);
   const sessions = useMemo(
     () => ownershipSessions(data?.events ?? [], data?.sessions ?? []),
@@ -370,7 +384,13 @@ export function TimelinePage({
                           </p>
                         </div>
                       )}
-                      <EventRow event={event} selectPort={selectPort} />
+                      <EventRow
+                        event={event}
+                        selectPort={selectPort}
+                        runFinished={runFinished}
+                        ports={ports}
+                        requestAction={requestAction}
+                      />
                     </div>
                   );
                 })
@@ -398,6 +418,14 @@ export function TimelinePage({
                           : ""}
                         Interval bounded by observed events.
                       </small>
+                      {s.owner && (
+                        <TimelineRunButton
+                          launch={s.owner.process.launch}
+                          ports={ports}
+                          requestAction={requestAction}
+                          finished={runFinished}
+                        />
+                      )}
                     </div>
                   </div>
                 ))}
@@ -431,10 +459,16 @@ export function TimelinePage({
 }
 const EventRow = memo(function EventRow({
   event: e,
+  ports,
+  requestAction,
   selectPort,
+  runFinished,
 }: {
   event: TimelineEvent;
+  ports: PortEntry[];
+  requestAction: (entry: PortEntry, action: ProcessAction) => void;
   selectPort: (p: number) => void;
+  runFinished: (message: string, error?: boolean) => void;
 }) {
   const p = (e.process ?? e.previousProcess)?.process;
   return (
@@ -473,6 +507,12 @@ const EventRow = memo(function EventRow({
             :{e.port}
           </button>
         </div>
+        <TimelineRunButton
+          launch={p?.launch}
+          ports={ports}
+          requestAction={requestAction}
+          finished={runFinished}
+        />
         <p>
           {p?.project?.name ??
             p?.serviceName ??
@@ -551,6 +591,12 @@ function Snapshot({
                 ? "Relaunched by Port Authority"
                 : p.launch.source.replaceAll("_", " ")}
             </dd>
+            {p.launch.runId && (
+              <>
+                <dt>History run</dt>
+                <dd className="mono">{p.launch.runId}</dd>
+              </>
+            )}
             <dt>Launch root</dt>
             <dd>PID {p.launch.launchRoot.pid}</dd>
           </>

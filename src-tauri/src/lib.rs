@@ -64,6 +64,8 @@ pub fn run() {
             commands::recovery::recovery_restart,
             commands::recovery::recovery_run_again,
             commands::recovery::recovery_history,
+            commands::recovery::recovery_context,
+            commands::recovery::recovery_diagnostics,
             commands::recovery::recovery_pin_command,
             commands::recovery::recovery_remove_run,
             commands::recovery::recovery_status,

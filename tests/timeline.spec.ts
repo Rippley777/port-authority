@@ -333,3 +333,196 @@ test("database failure is visible without disabling port inspection", async ({
     .click();
   await expect(page.locator(".port-table tbody tr")).toHaveCount(12);
 });
+
+test("timeline play resolves saved commands, confirms custom launches, and reports conflicts", async ({
+  page,
+}) => {
+  const { demoPorts } = await import("../src/lib/demo");
+  await page.addInitScript(
+    ({ process }) => {
+      const now = Math.floor(Date.now() / 1000);
+      const context = {
+        id: "saved-launch",
+        source: "shell_observed",
+        confidence: "HIGH",
+        kind: "direct_process",
+        command: "npm run dev",
+        executable: "/usr/local/bin/npm",
+        args: ["run", "dev"],
+        workingDirectory: "/Users/developer/project",
+        environment: [],
+        shell: "zsh",
+        projectId: "/Users/developer/project",
+        launchRoot: { pid: 100, startedAt: now - 100 },
+        capturedAt: now - 100,
+        recoverable: true,
+        reason: "",
+        relaunchedAt: null,
+      };
+      const events = ["PORT_RELEASED", "PORT_CLAIMED", "OBSERVED"].map(
+        (eventType, i) => {
+          const observation = {
+            process: {
+              ...process,
+              launch:
+                i === 2
+                  ? null
+                  : {
+                      ...context,
+                      id: i === 0 ? "saved-launch" : "custom-launch",
+                      // Snapshot availability is deliberately outdated.
+                      recoverable: false,
+                    },
+            },
+            ancestors: [],
+          };
+          return {
+            id: `play-${i}`,
+            sequence: 3 - i,
+            timestamp: now - i,
+            sessionId: "session",
+            port: 5173,
+            protocol: "TCP",
+            address: "127.0.0.1",
+            eventType,
+            process: i === 0 ? null : observation,
+            previousProcess: i === 0 ? observation : null,
+            uncertain: false,
+            correlationId: null,
+          };
+        },
+      );
+      const calls: unknown[] = [];
+      Object.defineProperty(window, "timelineRunCalls", { value: calls });
+      Object.defineProperty(window, "isTauri", { value: true });
+      Object.defineProperty(window, "__TAURI_INTERNALS__", {
+        value: {
+          transformCallback: () => 1,
+          invoke: async (
+            command: string,
+            args?: { id?: string; confirmed?: boolean },
+          ) => {
+            if (command === "scan_ports") return [process];
+            if (command === "projects_snapshot")
+              return { projects: [], resolving: false, storageError: null };
+            if (command === "project_applications")
+              return { editors: [], terminals: [] };
+            if (command === "autopilot_snapshot")
+              return {
+                enabled: false,
+                supported: true,
+                conflicts: [],
+                setupCommand: "",
+                connectionError: null,
+              };
+            if (command === "recovery_history")
+              return { commands: [], runs: [], storageError: null };
+            if (command === "timeline_query")
+              return {
+                events,
+                sessions: [],
+                recurring: [],
+                nextCursor: null,
+                config: {
+                  enabled: true,
+                  retentionDays: 30,
+                  reclaimWindowSeconds: 600,
+                  reclaimThreshold: 3,
+                },
+                databaseBytes: 0,
+                error: null,
+                monitoring: true,
+              };
+            if (command === "recovery_context")
+              return args?.id === "custom-launch"
+                ? {
+                    ...context,
+                    id: "custom-launch",
+                    executable: "/usr/local/bin/custom",
+                    args: ["dev"],
+                    command: "custom dev",
+                  }
+                : context;
+            if (command === "recovery_run_again") {
+              calls.push(args);
+              if (args?.id === "custom-launch")
+                throw new Error("Port :5173 is already occupied.");
+              return {
+                state: "RUNNING",
+                message: "npm run dev started. Verified ports :5173.",
+                oldPid: 0,
+                newPid: 200,
+                ports: [5173],
+                output: "",
+              };
+            }
+            return null;
+          },
+        },
+      });
+      Object.defineProperty(window, "__TAURI_EVENT_PLUGIN_INTERNALS__", {
+        value: { unregisterListener: () => {} },
+      });
+    },
+    { process: demoPorts.find((p) => p.port === 5173)! },
+  );
+  await openHistory(page);
+  const rows = page.locator(".timeline-event");
+  await expect(rows).toHaveCount(3);
+  await expect(
+    rows.getByRole("button", { name: "Run command again" }),
+  ).toHaveCount(3);
+  const unavailable = rows
+    .nth(2)
+    .getByRole("button", { name: "Run command again" });
+  await expect(unavailable).toBeDisabled();
+  await expect(unavailable).toHaveAttribute(
+    "title",
+    /original command was not saved/,
+  );
+  await rows.first().getByRole("button", { name: "Run command again" }).click();
+  await expect(rows.first().getByRole("status")).toContainText(
+    "Verified ports :5173",
+  );
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { timelineRunCalls: unknown[] }).timelineRunCalls,
+    ),
+  ).toEqual([{ id: "saved-launch", confirmed: false }]);
+  await rows.nth(1).getByRole("button", { name: "Run command again" }).click();
+  const dialog = page.getByRole("dialog", {
+    name: "Confirm historical command",
+  });
+  await expect(dialog).toContainText("custom dev");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { timelineRunCalls: unknown[] }).timelineRunCalls
+          .length,
+    ),
+  ).toBe(1);
+  await rows.nth(1).getByRole("button", { name: "Run command again" }).click();
+  await dialog
+    .getByRole("button", { name: "Run Command", exact: true })
+    .click();
+  await expect(rows.nth(1).getByRole("alert")).toContainText(
+    "already occupied",
+  );
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { timelineRunCalls: unknown[] }).timelineRunCalls,
+    ),
+  ).toEqual([
+    { id: "saved-launch", confirmed: false },
+    { id: "custom-launch", confirmed: true },
+  ]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+  ).toBe(false);
+});

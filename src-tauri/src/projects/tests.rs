@@ -377,3 +377,31 @@ fn idle_project_metadata_can_refresh_without_claiming_it_is_running() {
     );
     assert_eq!(engine.snapshot().projects[0].last_observed, observed);
 }
+
+#[test]
+fn captured_project_cwd_wins_over_runtime_installation_and_cache_paths() {
+    let f = Fixture::new();
+    f.write(".nvm/package.json", r#"{"name":"nvm"}"#);
+    f.write(".cache/package.json", r#"{"name":"cache"}"#);
+    f.write("real-project/package.json", r#"{"name":"rippley-labs"}"#);
+    assert!(resolver::find_root(&f.0.join(".nvm")).is_none());
+    assert!(resolver::find_root(&f.0.join(".cache")).is_none());
+    let mut port = entry(Some(&f.0.join(".nvm")));
+    let capture = crate::autopilot::capture::Capture {
+        argv: vec!["npm".into(), "run".into(), "dev".into()],
+        executable: "/usr/local/bin/npm".into(),
+        cwd: f.0.join("real-project").to_string_lossy().into(),
+        env: Default::default(),
+        error: String::new(),
+        exit_code: 1,
+    };
+    port.launch = Some(crate::recovery::launch_context::from_capture(
+        &capture,
+        port.identity().unwrap(),
+        crate::recovery::models::Source::ShellObserved,
+    ));
+    assert_eq!(
+        resolver::candidate(&port, None).unwrap().0,
+        f.0.join("real-project")
+    );
+}

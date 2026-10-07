@@ -20,7 +20,7 @@ use sysinfo::{Pid, ProcessesToUpdate, System, UpdateKind};
 pub fn inspect(
     entry: &PortEntry,
     ancestors: &[Ancestor],
-) -> Option<(LaunchContext, Option<Capture>)> {
+) -> Option<(DisplayLaunchContext, Option<Capture>)> {
     if entry.protected
         || adapters::excluded(&entry.process)
         || ancestors.iter().any(|a| adapters::excluded(&a.name))
@@ -93,21 +93,52 @@ pub fn inspect(
         && c.validate().is_ok();
     context.recoverable = complete;
     if !complete {
+        context.recovery_confidence = RecoveryConfidence::Unavailable;
         context.reason = "Original launch command or environment could not be determined. Configure a recovery command or launch through shell integration.".into();
     }
     Some((context, complete.then_some(c)))
 }
 #[cfg(target_os = "macos")]
 pub fn inspect(
-    _entry: &crate::ports::models::PortEntry,
-    _ancestors: &[crate::timeline::models::Ancestor],
+    entry: &crate::ports::models::PortEntry,
+    ancestors: &[crate::timeline::models::Ancestor],
 ) -> Option<(
-    super::models::LaunchContext,
+    super::models::DisplayLaunchContext,
     Option<crate::autopilot::capture::Capture>,
 )> {
-    // Original environments are supplied only by opt-in shell capture. Reading
-    // unrelated process environments is not a requirement of monitoring.
-    None
+    use super::{adapters, launch_context, models::*};
+    use crate::autopilot::capture::Capture;
+    // Use only metadata already supplied by the optional, cached inspector.
+    // Never read another process's environment or retry protected metadata.
+    if entry.protected || entry.system || ancestors.iter().any(|a| adapters::excluded(&a.name)) {
+        return None;
+    }
+    let root = entry.identity()?;
+    let cwd = entry.cwd.as_ref()?;
+    let executable = entry.executable.as_ref()?;
+    if !adapters::supported(&entry.command)
+        || !adapters::compatible(&entry.command, std::path::Path::new(executable))
+    {
+        return None;
+    }
+    let capture = Capture {
+        argv: entry.command.clone(),
+        executable: executable.clone(),
+        cwd: cwd.clone(),
+        env: std::env::vars().collect(),
+        error: String::new(),
+        exit_code: 1,
+    };
+    let complete = launch_context::safe_argv(&capture) == capture.argv
+        && crate::process::privacy::accessible_path(std::path::Path::new(cwd)).is_ok()
+        && capture.validate().is_ok()
+        && alive(root);
+    if !complete {
+        return None;
+    }
+    let mut display = launch_context::from_capture(&capture, root, Source::ProcessInspection);
+    display.reason = "Recovered from intact process arguments; uses the current Port Authority environment. The original shell environment was not captured.".into();
+    Some((display, Some(capture)))
 }
 pub fn alive(identity: ProcessIdentity) -> bool {
     controller::inspect_identity(identity.pid, Some(identity.started_at))

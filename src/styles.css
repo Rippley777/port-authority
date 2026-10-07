@@ -809,7 +809,7 @@ h1 {
   width: 15%;
 }
 .col-process {
-  width: 22%;
+  width: 19%;
 }
 .col-pid {
   width: 9%;
@@ -821,7 +821,7 @@ h1 {
   width: 9%;
 }
 .col-actions {
-  width: 9%;
+  width: 12%;
 }
 .port-table th {
   height: 34px;
@@ -2267,7 +2267,7 @@ h1 {
     width: 9%;
   }
   .col-actions {
-    width: 11%;
+    width: 15%;
   }
   .port-table td,
   .port-table th {
@@ -2381,7 +2381,7 @@ h1 {
     width: 14%;
   }
   .col-actions {
-    width: 12%;
+    width: 16%;
   }
   .scan-interval {
     font-size: 8px;
@@ -4146,8 +4146,31 @@ h1 {
   color: #99bddd;
 }
 .timeline-event-body {
+  position: relative;
   padding: 4px 0 22px 5px;
   min-width: 0;
+}
+.timeline-event-body > .timeline-run > .timeline-run-button {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+.timeline-event-body > .timeline-event-heading {
+  padding-right: 120px;
+}
+.timeline-run > p {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+  .timeline-event-body > .timeline-run > .timeline-run-button {
+    position: static;
+    margin-top: 8px;
+  }
+  .timeline-event-body > .timeline-event-heading {
+    padding-right: 0;
+  }
 }
 .timeline-event-heading {
   display: flex;

@@ -6,6 +6,7 @@ import {
   ExternalLink,
   MoreHorizontal,
   Network,
+  RotateCw,
   SearchX,
   Shield,
   Square,
@@ -22,6 +23,7 @@ interface Props {
   select: (p: PortEntry) => void;
   open: (p: PortEntry) => void;
   kill: (p: PortEntry) => void;
+  restart: (p: PortEntry) => void;
   menu: (p: PortEntry, event: MouseEvent) => void;
   sort: SortKey;
   ascending: boolean;
@@ -37,6 +39,7 @@ export function PortTable(props: Props) {
     select,
     open,
     kill,
+    restart,
     menu,
     sort,
     ascending,
@@ -143,6 +146,18 @@ export function PortTable(props: Props) {
             }}
           >
             <Square size={12} />
+          </button>
+          <button
+            className="icon-button"
+            aria-label={`Restart service on port ${p.port}`}
+            title={p.restartable ? `Restart on :${p.port}` : p.restartReason}
+            disabled={!p.restartable || p.protected || !p.pid}
+            onClick={(e) => {
+              e.stopPropagation();
+              restart(p);
+            }}
+          >
+            <RotateCw size={14} />
           </button>
           <button
             className="icon-button"

@@ -35,13 +35,17 @@ The browser version is explicitly labeled **Preview workspace**. It uses sample 
 For a desktop package:
 
 ```sh
-npm run desktop:build
-# macOS app: src-tauri/target/release/bundle/macos/Port Authority.app
+npm run build:release
+# Normalized packages: builds/current/<platform>/
+# Previous distributables: builds/archive/<UTC timestamp>/
 ```
 
-A locally verified, unsigned debug app is also available after:
+See [Building and releasing](docs/BUILDING.md) for architecture selection, native CI builds, archives, and signing. `desktop:build` also uses this release pipeline.
+
+For a debug app, archive existing packages first:
 
 ```sh
+npm run archive:builds
 npm run tauri build -- --debug --bundles app
 ```
 
@@ -174,3 +178,7 @@ The browser version includes House Edge page/view tracking, anonymous sessions, 
 Create a House Edge project with key `port-authority` and allow this site's exact origin. Set `VITE_HOUSE_EDGE_KEY` to its **browser ingestion key** and `VITE_HOUSE_EDGE_ENDPOINT` to your collector URL ending in `/api/collect`, using `.env.local` or your build environment. `.env.example` lists the settings. Rebuild and redeploy the browser version, then check Live Activity for `page_view` and `session_start` after about five seconds.
 
 Tracking is off when the key or endpoint is missing, and development requires `VITE_HOUSE_EDGE_TRACK_DEVELOPMENT=true`. Do Not Track is respected. The SDK is installed from the checked-in `vendor/house-edge-analytics-0.1.1.tgz`, so independent builds need no sibling House Edge checkout. Commit the tarball with its package manifest and lockfile.
+
+## macOS Release
+
+Run `npm run release:mac:check` to validate prerequisites, then `npm run release:desktop` for Developer ID signed, notarized ARM64, Intel and universal apps/DMGs. See [macOS release setup, credentials, outputs and verification](docs/MACOS_RELEASE.md). Existing development and Windows/Linux commands remain available.

@@ -1,4 +1,4 @@
-use super::{correlation, models::LaunchContext};
+use super::{correlation, models::DisplayLaunchContext};
 use crate::{
     autopilot::capture::Capture,
     ports::models::PortEntry,
@@ -7,7 +7,7 @@ use crate::{
 };
 pub fn validate(
     entry: &PortEntry,
-    context: &LaunchContext,
+    context: &DisplayLaunchContext,
     capture: &Capture,
 ) -> Result<Vec<TreeMember>, String> {
     validate_launch(context, capture)?;
@@ -22,7 +22,7 @@ pub fn validate(
     ancestry::inspect_tree(context.launch_root)
 }
 
-pub fn validate_launch(context: &LaunchContext, capture: &Capture) -> Result<(), String> {
+pub fn validate_launch(context: &DisplayLaunchContext, capture: &Capture) -> Result<(), String> {
     if !std::path::Path::new(&capture.cwd).is_dir() {
         return Err(format!(
             "Cannot run this command. The original working directory no longer exists: {}",
@@ -40,6 +40,17 @@ pub fn validate_launch(context: &LaunchContext, capture: &Capture) -> Result<(),
         ));
     }
     capture.validate()?;
+    if let Some(project) = context.project_id.as_ref() {
+        let root = crate::process::privacy::accessible_path(std::path::Path::new(project))
+            .map_err(|_| {
+                "The original project is no longer available. Update its recovery command."
+            })?;
+        let cwd = crate::process::privacy::accessible_path(std::path::Path::new(&capture.cwd))
+            .map_err(|_| "The original working directory is no longer available.")?;
+        if !cwd.starts_with(root) {
+            return Err("Launch directory no longer belongs to the recorded project. Update its recovery command.".into());
+        }
+    }
     if crate::autopilot::capture::resolve_executable(
         &capture.executable,
         std::path::Path::new(&capture.cwd),
@@ -57,7 +68,7 @@ pub fn validate_launch(context: &LaunchContext, capture: &Capture) -> Result<(),
     Ok(())
 }
 
-pub fn requires_confirmation(context: &LaunchContext, capture: &Capture) -> bool {
+pub fn requires_confirmation(context: &DisplayLaunchContext, capture: &Capture) -> bool {
     context.source != super::models::Source::UserDefined
         && !super::adapters::supported(&capture.argv)
 }

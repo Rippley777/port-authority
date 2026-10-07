@@ -334,6 +334,7 @@ export default function App() {
               {page === "History" && (
                 <HistoryPage
                   initialPort={timelinePort}
+                  requestAction={requestAction}
                   ports={ports}
                   favorites={favorites}
                   paused={paused}

@@ -19,6 +19,16 @@ fn device(_: &Path) -> Option<u64> {
 }
 // Ignore dependency/vendor manifests: their application is above node_modules/target.
 pub fn find_root(start: &Path) -> Option<(PathBuf, Vec<String>)> {
+    // Runtime installations and caches are not application projects. Check
+    // lexically before probing their contents (also avoids protected app data).
+    if start.components().any(|part| {
+        matches!(
+            part.as_os_str().to_str(),
+            Some(".nvm" | ".volta" | ".asdf" | ".rustup" | ".cache" | "_npx" | ".next")
+        )
+    }) {
+        return None;
+    }
     let mut path = crate::process::privacy::accessible_path(start).ok()?;
     if path.is_file() {
         path.pop();
@@ -96,6 +106,16 @@ pub fn candidate(
         return None;
     }
     crate::process::privacy::trace(entry.pid.unwrap_or(0), "project_detection", "begin");
+    if let Some(launch) = &entry.launch {
+        if let Some((root, markers)) = find_root(Path::new(&launch.working_directory)) {
+            return Some((
+                root,
+                markers,
+                Confidence::High,
+                "Captured launch working directory".into(),
+            ));
+        }
+    }
     if let Some(cwd) = &entry.cwd {
         if let Some((root, markers)) = find_root(Path::new(cwd)) {
             return Some((

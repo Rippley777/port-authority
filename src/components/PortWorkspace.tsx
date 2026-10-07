@@ -240,6 +240,7 @@ export function PortWorkspace({
             select={setSelected}
             open={open}
             kill={(p) => requestAction(p, "kill")}
+            restart={(p) => requestAction(p, "restart")}
             menu={showMenu}
             sort={sort}
             ascending={ascending}

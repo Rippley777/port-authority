@@ -1,0 +1,115 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Package ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macos
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - os: windows-latest
+            platform: windows
+            targets: x86_64-pc-windows-msvc
+          - os: ubuntu-22.04
+            platform: linux
+            targets: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install Linux packaging prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libclang-dev libfuse2 file zsh
+      - name: Install repository Rust toolchain and targets
+        shell: bash
+        run: |
+          rustup show
+          rustup target add $(echo '${{ matrix.targets }}' | tr ',' ' ')
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run test:release
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - name: Build and archive using the same local release command
+        run: npm run build:release -- --platform ${{ matrix.platform }}
+        env:
+          # Avoid reliance on FUSE mounting during AppImage creation on CI.
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+      - name: Upload distributables and provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}-${{ github.run_attempt }}
+          path: |
+            builds/current/BUILD_INFO.json
+            builds/current/SHA256SUMS.txt
+            builds/current/**/*.dmg
+            builds/current/**/*.app.tar.gz
+            builds/current/**/*.exe
+            builds/current/**/*.AppImage
+            builds/current/**/*.deb
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+  collect:
+    name: Collect release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Download platform outputs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: builds/downloaded
+      - name: Verify checksums and assemble latest successful platform outputs
+        run: node scripts/assemble-release.mjs
+      - name: Upload complete release
+        uses: actions/upload-artifact@v4
+        with:
+          name: Port-Authority-release-${{ github.run_attempt }}
+          path: builds/current/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+      - name: Create draft GitHub Release for version tags
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          files: |
+            builds/current/BUILD_INFO.json
+            builds/current/SHA256SUMS.txt
+            builds/current/macos/*.dmg
+            builds/current/macos/*.app.tar.gz
+            builds/current/windows/*.exe
+            builds/current/linux/*.AppImage
+            builds/current/linux/*.deb

@@ -7,12 +7,15 @@ import {
   ExternalLink,
   History,
   Play,
+  RotateCw,
   Search,
   Terminal,
   XCircle,
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import type { PortEntry } from "../../lib/types";
+import { activeLaunch, usefulRecentCommands } from "../../lib/runHistory";
+import { launchSources } from "./types";
+import type { PortEntry, ProcessAction } from "../../lib/types";
 import { desktop } from "../../lib/api";
 import { Modal } from "../../components/Modal";
 import { useProjectContext } from "../projects/useProjects";
@@ -58,6 +61,7 @@ export function RunHistoryPage({
   ports,
   favorites,
   inspect,
+  requestAction,
   openTimeline,
   copy,
   refreshPorts,
@@ -67,6 +71,7 @@ export function RunHistoryPage({
   ports: PortEntry[];
   favorites: number[];
   inspect: (entry: PortEntry) => void;
+  requestAction: (entry: PortEntry, action: ProcessAction) => void;
   openTimeline: (port?: number) => void;
   copy: (value: string, label: string) => void;
   refreshPorts: () => Promise<unknown>;
@@ -96,7 +101,7 @@ export function RunHistoryPage({
     limit: 500,
   });
   const commands = history.data?.commands ?? [];
-  const recentlyRun = useMemo(() => commands.slice(0, 3), [commands]);
+  const recentlyRun = useMemo(() => usefulRecentCommands(commands), [commands]);
   const pinPort = selected?.typicalPorts.find((candidate) =>
     favorites.includes(candidate),
   );
@@ -126,6 +131,16 @@ export function RunHistoryPage({
     }
   }
 
+  function restartCommand(command: HistoricalCommand) {
+    const active = activeLaunch(command.launchContext, ports);
+    return active?.restartable && !active.protected && active.pid
+      ? () => {
+          setSelected(null);
+          requestAction(active, "restart");
+        }
+      : undefined;
+  }
+
   return (
     <div className="run-history-page">
       {!port && recentlyRun.length > 0 && (
@@ -147,9 +162,10 @@ export function RunHistoryPage({
                 busy={busy === command.launchContext.id}
                 feedback={feedback[command.launchContext.id]}
                 run={() => void run(command)}
+                restart={restartCommand(command)}
                 details={() => setSelected(command)}
                 open={() => {
-                  const active = activeEntry(command, ports);
+                  const active = activeLaunch(command.launchContext, ports);
                   if (active) inspect(active);
                 }}
               />
@@ -223,9 +239,10 @@ export function RunHistoryPage({
                 busy={busy === command.launchContext.id}
                 feedback={feedback[command.launchContext.id]}
                 run={() => void run(command)}
+                restart={restartCommand(command)}
                 details={() => setSelected(command)}
                 open={() => {
-                  const active = activeEntry(command, ports);
+                  const active = activeLaunch(command.launchContext, ports);
                   if (active) inspect(active);
                 }}
               />
@@ -251,6 +268,7 @@ export function RunHistoryPage({
           )}
           close={() => setSelected(null)}
           run={() => void run(selected)}
+          restart={restartCommand(selected)}
           copy={copy}
           openTimeline={openTimeline}
           openProject={(() => {
@@ -321,21 +339,13 @@ export function RunHistoryPage({
   );
 }
 
-function activeEntry(command: HistoricalCommand, ports: PortEntry[]) {
-  return ports.find(
-    (entry) =>
-      entry.launch?.id === command.launchContext.id ||
-      (entry.project?.rootPath === command.launchContext.projectId &&
-        command.typicalPorts.includes(entry.port)),
-  );
-}
-
 function CommandCard({
   command,
   compact = false,
   busy,
   feedback,
   run,
+  restart,
   details,
   open,
 }: {
@@ -344,6 +354,7 @@ function CommandCard({
   busy: boolean;
   feedback?: string;
   run: () => void;
+  restart?: () => void;
   details: () => void;
   open: () => void;
 }) {
@@ -411,6 +422,11 @@ function CommandCard({
         </p>
       )}
       <div className="command-history-actions">
+        {restart && (
+          <button className="button" onClick={restart}>
+            <RotateCw size={13} /> Restart
+          </button>
+        )}
         {command.active ? (
           <button className="button primary" onClick={open}>
             Open
@@ -438,6 +454,7 @@ function RunDetails({
   runs,
   close,
   run,
+  restart,
   copy,
   openTimeline,
   openProject,
@@ -448,6 +465,7 @@ function RunDetails({
   runs: CommandRun[];
   close: () => void;
   run: () => void;
+  restart?: () => void;
   copy: (value: string, label: string) => void;
   openTimeline: (port?: number) => void;
   openProject?: () => void;
@@ -456,6 +474,7 @@ function RunDetails({
 }) {
   const context = command.launchContext;
   const [message, setMessage] = useState("");
+  const [diagnostics, setDiagnostics] = useState("");
   return (
     <Modal close={close} label={`Run details for ${context.command}`}>
       <div className="run-details-header">
@@ -468,6 +487,25 @@ function RunDetails({
         </div>
       </div>
       <dl className="details run-details-grid">
+        <dt>Launch source</dt>
+        <dd>
+          {context.relaunchedAt
+            ? "Relaunched by Port Authority"
+            : launchSources[context.source]}
+        </dd>
+        <dt>Recovery</dt>
+        <dd>
+          {context.recoveryConfidence ??
+            (context.recoverable ? "observed" : "unavailable")}
+        </dd>
+        <dt>Environment</dt>
+        <dd>
+          {context.environmentStrategy === "current_with_captured_toolchain"
+            ? "Current environment with captured toolchain paths after app restart"
+            : "Original environment available only in this session"}
+        </dd>
+        <dt>Run ID</dt>
+        <dd className="mono">{command.latestRun.id}</dd>
         <dt>Last started</dt>
         <dd>{new Date(command.latestRun.startedAt * 1000).toLocaleString()}</dd>
         <dt>Last stopped</dt>
@@ -493,10 +531,13 @@ function RunDetails({
               stateLabel[command.latestRun.state])}
         </dd>
       </dl>
-      {!context.recoverable && (
-        <p className="drawer-footnote">{context.reason}</p>
-      )}
+      {context.reason && <p className="drawer-footnote">{context.reason}</p>}
       <div className="recovery-actions run-details-actions">
+        {restart && (
+          <button className="button primary" onClick={restart}>
+            <RotateCw size={13} /> Restart
+          </button>
+        )}
         {!command.active && context.recoverable && (
           <button className="button primary" onClick={run}>
             <Play size={13} fill="currentColor" /> Run Again
@@ -551,6 +592,20 @@ function RunDetails({
           </button>
         )}
       </div>
+      {import.meta.env.DEV && desktop && (
+        <details
+          onToggle={(event) => {
+            if (event.currentTarget.open && !diagnostics) {
+              void invoke("recovery_diagnostics", { id: context.id })
+                .then((data) => setDiagnostics(JSON.stringify(data, null, 2)))
+                .catch((reason) => setDiagnostics(String(reason)));
+            }
+          }}
+        >
+          <summary>History diagnostics</summary>
+          <pre className="recovery-output">{diagnostics || "Loading…"}</pre>
+        </details>
+      )}
       <RecoveryProgress id={context.id} />
       {message && <p role="status">{message}</p>}
       {runs.length === 1 && (

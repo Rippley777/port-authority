@@ -9,3 +9,17 @@ test-results/
 
 .env*
 !.env.example
+
+# Local distributables and immutable release archives
+builds/
+artifacts/
+
+# Production macOS release output and local Apple credentials
+/macos-releases/
+*.p8
+*.p12
+*.pfx
+*.keychain
+*.keychain-db
+.env.signing*
+.env.notarization*

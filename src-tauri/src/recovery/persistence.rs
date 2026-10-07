@@ -14,6 +14,7 @@ impl Persistence {
                 "CREATE TABLE IF NOT EXISTS launch_contexts (
                     id TEXT PRIMARY KEY, payload TEXT NOT NULL, updated INTEGER NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS execution_contexts (id TEXT PRIMARY KEY, payload TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS launch_profiles (
                     project TEXT PRIMARY KEY, payload TEXT NOT NULL
                 );
@@ -55,14 +56,21 @@ impl Persistence {
         Ok(Self(repo))
     }
 
-    pub fn save(&self, context: &LaunchContext) -> Result<(), String> {
+    pub fn save(&self, context: &DisplayLaunchContext) -> Result<(), String> {
         let mut durable = context.clone();
         if durable.fingerprint.is_empty() {
             durable.fingerprint = CommandFingerprint::from_context(&durable).key();
         }
-        // Persisted metadata is evidence, not authorization to substitute the app environment.
+        // Display metadata alone is never enough to launch a command.
         durable.recoverable = false;
-        durable.reason = "This command depended on environment values Port Authority did not store. Run it from the original terminal environment or update its recovery configuration.".into();
+        durable.recovery_confidence = RecoveryConfidence::Unavailable;
+        durable.reason = if context.schema_version < 2 {
+            "Legacy history entry: original launch command was not retained. Capture it again or configure a recovery command."
+        } else if context.args.iter().any(|arg| arg.contains("••••")) {
+            "Secret-bearing launch arguments were not saved. Run from the original terminal or configure a recovery command."
+        } else {
+            "Original execution data is unavailable. Capture the launch again or configure a recovery command."
+        }.into();
         self.0
             .db
             .execute(
@@ -77,9 +85,84 @@ impl Persistence {
         Ok(())
     }
 
-    pub fn contexts(&self) -> Result<Vec<LaunchContext>, String> {
-        let mut contexts: Vec<LaunchContext> = self.read("SELECT payload FROM launch_contexts")?;
+    pub fn save_capture(
+        &self,
+        display: &DisplayLaunchContext,
+        capture: &crate::autopilot::capture::Capture,
+    ) -> Result<(), String> {
+        let transaction = self
+            .0
+            .db
+            .unchecked_transaction()
+            .map_err(|e| e.to_string())?;
+        self.save_execution(display, capture)?;
+        self.save(display)?;
+        transaction.commit().map_err(|e| e.to_string())
+    }
+
+    pub fn save_execution(
+        &self,
+        display: &DisplayLaunchContext,
+        capture: &crate::autopilot::capture::Capture,
+    ) -> Result<(), String> {
+        if let Some(context) = super::execution::LaunchContext::from_capture(display, capture) {
+            self.0
+                .db
+                .execute(
+                    "INSERT OR REPLACE INTO execution_contexts VALUES (?,?)",
+                    params![
+                        context.id,
+                        serde_json::to_string(&context).map_err(|e| e.to_string())?
+                    ],
+                )
+                .map_err(|e| e.to_string())?;
+        } else {
+            // Never leave an older executable recipe behind under a reused id.
+            self.0
+                .db
+                .execute("DELETE FROM execution_contexts WHERE id=?", [&display.id])
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+    pub fn execution(&self, id: &str) -> Result<Option<super::execution::LaunchContext>, String> {
+        let payload: Option<String> = self
+            .0
+            .db
+            .query_row(
+                "SELECT payload FROM execution_contexts WHERE id=?",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        payload
+            .map(|p| serde_json::from_str(&p).map_err(|e| e.to_string()))
+            .transpose()
+    }
+
+    pub fn contexts(&self) -> Result<Vec<DisplayLaunchContext>, String> {
+        let mut contexts: Vec<DisplayLaunchContext> =
+            self.read("SELECT payload FROM launch_contexts")?;
         for context in &mut contexts {
+            if self
+                .execution(&context.id)?
+                .is_some_and(|execution| execution.capture().is_ok())
+            {
+                context.recoverable = true;
+                context.recovery_confidence =
+                    if context.relaunched_at.is_some() || context.source == Source::UserDefined {
+                        RecoveryConfidence::Exact
+                    } else if context.source == Source::ShellObserved {
+                        RecoveryConfidence::Observed
+                    } else {
+                        RecoveryConfidence::Recovered
+                    };
+                context.reason = "Uses the current environment with captured toolchain paths. Secrets are not restored from history.".into();
+            } else if context.schema_version < 2 {
+                context.recoverable = false;
+                context.reason = "Legacy history entry: original launch command was not retained. Capture it again or configure a recovery command.".into();
+            }
             if context.fingerprint.is_empty() {
                 context.fingerprint = CommandFingerprint::from_context(context).key();
             }
@@ -116,7 +199,7 @@ impl Persistence {
         Ok(())
     }
 
-    pub fn start_run(&self, context: &LaunchContext) -> Result<CommandRun, String> {
+    pub fn start_run(&self, context: &DisplayLaunchContext) -> Result<CommandRun, String> {
         if let Some(run) = self.latest_active(&context.id)? {
             if run.process_identity == Some(context.launch_root) {
                 return Ok(run);
@@ -138,7 +221,12 @@ impl Persistence {
             termination_reason: None,
             state: CommandRunState::Running,
             project_id: context.project_id.clone(),
-            project_name: None,
+            project_name: context
+                .project_id
+                .as_ref()
+                .and_then(|root| Path::new(root).file_name())
+                .and_then(|name| name.to_str())
+                .map(crate::projects::manifests::display_name),
             process_name: None,
             observed_ports: vec![],
             process_identity: Some(context.launch_root),
@@ -147,20 +235,29 @@ impl Persistence {
         Ok(run)
     }
 
-    pub fn observe_port(&self, context: &LaunchContext, entry: &PortEntry) -> Result<(), String> {
+    pub fn observe_port(
+        &self,
+        context: &DisplayLaunchContext,
+        entry: &PortEntry,
+    ) -> Result<(), String> {
         let Some(mut run) = self.latest_active(&context.id)? else {
             return Ok(());
         };
         run.fingerprint = context.fingerprint.clone();
         run.project_id = context.project_id.clone();
-        run.project_name = entry.project.as_ref().map(|project| project.name.clone());
-        run.process_name = Some(
-            entry
-                .service_name
-                .clone()
-                .unwrap_or_else(|| entry.process.clone()),
-        );
-        run.process_identity = entry.identity().or(run.process_identity);
+        if let Some(project) = &entry.project {
+            run.project_name = Some(project.name.clone());
+        }
+        if entry.project.is_some() || run.process_name.is_none() {
+            run.process_name = Some(
+                entry
+                    .service_name
+                    .clone()
+                    .unwrap_or_else(|| entry.process.clone()),
+            );
+        }
+        // A run is rooted at its launcher; listener children must not replace it.
+        run.process_identity = Some(context.launch_root);
         let binding = RunPort {
             port: entry.port,
             protocol: entry.protocol.clone(),
@@ -182,7 +279,7 @@ impl Persistence {
         Ok(())
     }
 
-    pub fn refresh_active_context(&self, context: &LaunchContext) -> Result<(), String> {
+    pub fn refresh_active_context(&self, context: &DisplayLaunchContext) -> Result<(), String> {
         if let Some(mut run) = self.latest_active(&context.id)? {
             run.fingerprint = context.fingerprint.clone();
             run.project_id = context.project_id.clone();
@@ -221,6 +318,24 @@ impl Persistence {
         Ok(())
     }
 
+    pub fn finish_observed_root(
+        &self,
+        context_id: &str,
+        root: crate::process::ProcessIdentity,
+        reason: &str,
+    ) -> Result<(), String> {
+        if let Some(mut run) = self
+            .latest_active(context_id)?
+            .filter(|run| run.process_identity == Some(root))
+        {
+            run.state = CommandRunState::Stopped;
+            run.ended_at = Some(crate::autopilot::models::now());
+            run.termination_reason = Some(reason.into());
+            self.save_run(&run)?;
+        }
+        Ok(())
+    }
+
     fn latest_active(&self, context_id: &str) -> Result<Option<CommandRun>, String> {
         let payload: Option<String> = self
             .0
@@ -239,7 +354,7 @@ impl Persistence {
             .transpose()
     }
 
-    fn save_run(&self, run: &CommandRun) -> Result<(), String> {
+    pub(super) fn save_run(&self, run: &CommandRun) -> Result<(), String> {
         let search = format!(
             "{} {} {} {} {}",
             run.project_name.as_deref().unwrap_or_default(),
@@ -256,9 +371,12 @@ impl Persistence {
         self.0
             .db
             .execute(
-                "INSERT OR REPLACE INTO command_runs
+                "INSERT INTO command_runs
                  (id,launch_context_id,fingerprint,started_at,ended_at,state,search,payload)
-                 VALUES (?,?,?,?,?,?,?,?)",
+                 VALUES (?,?,?,?,?,?,?,?)
+                 ON CONFLICT(id) DO UPDATE SET launch_context_id=excluded.launch_context_id,
+                 fingerprint=excluded.fingerprint,started_at=excluded.started_at,ended_at=excluded.ended_at,
+                 state=excluded.state,search=excluded.search,payload=excluded.payload",
                 params![
                     run.id,
                     run.launch_context_id,
@@ -278,7 +396,9 @@ impl Persistence {
         let mut statement = self
             .0
             .db
-            .prepare("SELECT payload FROM command_runs ORDER BY started_at DESC LIMIT ?")
+            .prepare(
+                "SELECT payload FROM command_runs ORDER BY started_at DESC, rowid DESC LIMIT ?",
+            )
             .map_err(|e| e.to_string())?;
         let rows = statement
             .query_map([limit.clamp(1, 5000) as i64], |row| row.get::<_, String>(0))

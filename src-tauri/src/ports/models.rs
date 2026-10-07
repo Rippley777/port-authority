@@ -5,7 +5,7 @@ pub struct PortEntry {
     #[serde(default)]
     pub metadata_access: Option<crate::process::inspector::MetadataAccess>,
     #[serde(default)]
-    pub launch: Option<crate::recovery::models::LaunchContext>,
+    pub launch: Option<crate::recovery::models::DisplayLaunchContext>,
     #[serde(default)]
     pub project: Option<crate::projects::models::ProjectIdentity>,
     #[serde(default)]

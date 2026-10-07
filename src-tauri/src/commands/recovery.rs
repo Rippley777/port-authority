@@ -1,10 +1,32 @@
 use crate::{
     process::ProcessIdentity,
     recovery::{
-        models::{HistoryQuery, LaunchProfile, RecoveryStatus, RunHistoryPage},
+        models::{
+            DisplayLaunchContext, HistoryQuery, LaunchProfile, RecoveryStatus, RunHistoryPage,
+        },
         RecoveryStateHandle,
     },
 };
+#[tauri::command]
+pub async fn recovery_context(
+    id: String,
+    state: tauri::State<'_, RecoveryStateHandle>,
+) -> Result<DisplayLaunchContext, String> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || state.context(&id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+pub async fn recovery_diagnostics(
+    id: String,
+    state: tauri::State<'_, RecoveryStateHandle>,
+) -> Result<serde_json::Value, String> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || state.diagnostics(&id))
+        .await
+        .map_err(|e| e.to_string())?
+}
 #[tauri::command]
 pub async fn recovery_restart(
     id: String,

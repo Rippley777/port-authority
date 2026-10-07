@@ -2,7 +2,12 @@ export interface ProcessIdentity {
   pid: number;
   startedAt: number;
 }
-export interface LaunchContext {
+export interface DisplayLaunchContext {
+  schemaVersion?: number;
+  runId?: string | null;
+  environmentStrategy?: string | null;
+  recoveryConfidence?:
+    "exact" | "observed" | "recovered" | "inferred" | "unavailable";
   id: string;
   source:
     "shell_observed" | "parent_process" | "process_inspection" | "user_defined";
@@ -60,7 +65,7 @@ export interface CommandRun {
   processIdentity: ProcessIdentity | null;
 }
 export interface HistoricalCommand {
-  launchContext: LaunchContext;
+  launchContext: DisplayLaunchContext;
   latestRun: CommandRun;
   runCount: number;
   typicalPorts: number[];

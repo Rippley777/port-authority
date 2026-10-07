@@ -10,7 +10,11 @@ pub fn supported(argv: &[String]) -> bool {
     };
     match first {
         "npm" | "pnpm" | "yarn" | "bun" => argv.len() > 1,
-        "cargo" => argv.get(1).is_some_and(|s| s == "run"),
+        "cargo" => {
+            argv.get(1).is_some_and(|s| s == "run")
+                || (argv.get(1).is_some_and(|s| s == "tauri")
+                    && argv.get(2).is_some_and(|s| s == "dev"))
+        }
         s if s.starts_with("python") => argv.len() > 1,
         "node" | "nodejs" => argv.get(1).is_some_and(|s| {
             ["npm-cli.js", "pnpm.cjs", "yarn.js", "yarn.cjs"]

@@ -7,7 +7,7 @@ export function RunAgainDialog({
   close,
   confirm,
 }: {
-  command: HistoricalCommand;
+  command: Pick<HistoricalCommand, "launchContext">;
   close: () => void;
   confirm: () => void;
 }) {

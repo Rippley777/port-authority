@@ -23,16 +23,34 @@ pub enum LaunchKind {
     DirectProcess,
     ShellCommand,
 }
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum RecoveryConfidence {
+    Exact,
+    Observed,
+    Recovered,
+    Inferred,
+    #[default]
+    Unavailable,
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnvironmentVariable {
     pub name: String,
     pub value: Option<String>,
 }
-/// Public and durable metadata. Secret-bearing execution data lives separately in memory.
+/// Sanitized metadata for UI/history; never an execution input.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LaunchContext {
+pub struct DisplayLaunchContext {
+    #[serde(default)]
+    pub schema_version: u32,
+    #[serde(default)]
+    pub run_id: Option<String>,
+    #[serde(default)]
+    pub environment_strategy: Option<String>,
+    #[serde(default)]
+    pub recovery_confidence: RecoveryConfidence,
     pub id: String,
     pub source: Source,
     pub confidence: Confidence,
@@ -55,6 +73,16 @@ pub struct LaunchContext {
     pub fingerprint: String,
 }
 
+impl DisplayLaunchContext {
+    pub fn grouping_key(&self) -> String {
+        if self.args.iter().any(|a| a.contains("••••")) {
+            format!("private-context:{}", self.id)
+        } else {
+            CommandFingerprint::from_context(self).key()
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandFingerprint {
@@ -67,7 +95,7 @@ pub struct CommandFingerprint {
 }
 
 impl CommandFingerprint {
-    pub fn from_context(context: &LaunchContext) -> Self {
+    pub fn from_context(context: &DisplayLaunchContext) -> Self {
         Self {
             project_id: context.project_id.clone(),
             executable: context.executable.clone(),
@@ -123,7 +151,7 @@ pub struct CommandRun {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoricalCommand {
-    pub launch_context: LaunchContext,
+    pub launch_context: DisplayLaunchContext,
     pub latest_run: CommandRun,
     pub run_count: usize,
     pub typical_ports: Vec<u16>,
@@ -169,6 +197,7 @@ pub enum RecoveryState {
     VerifyingProcess,
     VerifyingPort,
     Running,
+    Unverified,
     ProcessChanged,
     TerminationFailed,
     PortNotReleased,

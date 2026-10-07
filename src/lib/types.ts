@@ -12,7 +12,7 @@ export interface PortEntry {
     executable: MetadataAccessState;
     command: MetadataAccessState;
   } | null;
-  launch?: import("../features/recovery/types").LaunchContext | null;
+  launch?: import("../features/recovery/types").DisplayLaunchContext | null;
   project?: ProjectIdentity | null;
   serviceName?: string | null;
   id: string;

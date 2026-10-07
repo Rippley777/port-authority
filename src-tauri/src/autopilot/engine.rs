@@ -511,7 +511,13 @@ impl Autopilot {
                     .iter()
                     .filter(|p| p.port == port && p.protocol == "TCP")
                     .collect();
-                if matching.iter().any(|p| !same_identity(p, &owner)) {
+                // Optional metadata can disappear while a process exits or a
+                // cached inspector is busy. Only PID + start time establishes
+                // a replacement owner here; this loop never sends a signal.
+                if matching.iter().any(|p| {
+                    p.identity()
+                        .is_some_and(|identity| Some(identity) != owner.identity())
+                }) {
                     return Err("The port now belongs to a different process. No further termination was attempted. Capture a new conflict.".into());
                 }
                 if Instant::now() >= deadline {

@@ -53,6 +53,66 @@ async function mockDesktop(
                 setupCommand: "",
                 connectionError: null,
               };
+            if (cmd === "recovery_history")
+              return {
+                commands: [
+                  {
+                    launchContext: entry.launch,
+                    active: true,
+                    runCount: 1,
+                    typicalPorts: [5173],
+                    pinnedPorts: [],
+                    latestRun: {
+                      id: "run-1",
+                      launchContextId: "launch-1",
+                      fingerprint: "launch-1",
+                      startedAt: entry.startedAt,
+                      endedAt: null,
+                      state: "RUNNING",
+                      projectName: "Shipwreck",
+                      processName: entry.process,
+                      projectId: entry.project?.rootPath,
+                      observedPorts: [],
+                      exitCode: null,
+                      terminationReason: null,
+                      processIdentity: null,
+                    },
+                  },
+                ],
+                runs: [],
+                storageError: null,
+              };
+            if (cmd === "timeline_query")
+              return {
+                events: [
+                  {
+                    id: "event-1",
+                    sequence: 1,
+                    timestamp: entry.startedAt,
+                    sessionId: "session-1",
+                    port: 5173,
+                    protocol: "TCP",
+                    address: entry.address,
+                    eventType: "PORT_CLAIMED",
+                    process: { process: entry, ancestors: [] },
+                    previousProcess: null,
+                    uncertain: false,
+                    correlationId: null,
+                  },
+                ],
+                sessions: [],
+                recurring: [],
+                nextCursor: null,
+                databaseBytes: 0,
+                error: null,
+                monitoring: true,
+                config: {
+                  enabled: true,
+                  retentionDays: 30,
+                  reclaimWindowSeconds: 600,
+                  reclaimThreshold: 3,
+                },
+              };
             if (cmd === "recovery_terminal") {
               if (args.directory !== entry.launch!.workingDirectory)
                 throw new Error("Wrong launch directory");
@@ -186,3 +246,73 @@ test("failed relaunch remains inspectable and exposes output without claiming su
     page.getByText("Restarted successfully", { exact: false }),
   ).toHaveCount(0);
 });
+
+for (const surface of [
+  "Ports",
+  "Processes",
+  "Favorites",
+  "Run History",
+  "Run details",
+  "Port Timeline",
+] as const) {
+  test(`${surface} restarts the live launch on its original port`, async ({
+    page,
+  }) => {
+    await mockDesktop(page);
+    await page.goto("/");
+    const navigation = page.getByRole("navigation", {
+      name: "Main navigation",
+    });
+    if (surface === "Processes" || surface === "Favorites")
+      await navigation
+        .getByRole("button", { name: new RegExp(surface) })
+        .click();
+    if (["Run History", "Run details", "Port Timeline"].includes(surface)) {
+      await navigation
+        .getByRole("button", { name: "History", exact: true })
+        .click();
+      if (surface === "Port Timeline") {
+        await page.getByRole("tab", { name: "Port Timeline" }).click();
+        await page
+          .getByRole("button", { name: "Restart running command" })
+          .click();
+      } else {
+        const card = page
+          .locator(".command-history-list .command-history-card")
+          .first();
+        if (surface === "Run details") {
+          await card.getByRole("button", { name: "Details" }).click();
+          await page
+            .getByRole("dialog")
+            .getByRole("button", { name: "Restart", exact: true })
+            .click();
+        } else
+          await card
+            .getByRole("button", { name: "Restart", exact: true })
+            .click();
+      }
+    } else if (surface === "Favorites") {
+      await page
+        .locator(".favorite-memory-card")
+        .filter({ hasText: ":5173" })
+        .getByRole("button", { name: "Restart", exact: true })
+        .click();
+    } else
+      await page
+        .getByRole("button", {
+          name: "Restart service on port 5173",
+          exact: true,
+        })
+        .click();
+    const confirm = page.getByRole("dialog", {
+      name: "Confirm command recovery",
+    });
+    await expect(confirm).toContainText("5173");
+    await confirm.getByRole("button", { name: "Restart", exact: true }).click();
+    await expect(
+      page.getByText(
+        "Restarted successfully. PID 48291 → 49102. Verified port 5173.",
+      ),
+    ).toBeVisible();
+  });
+}

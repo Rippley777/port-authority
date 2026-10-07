@@ -1,11 +1,13 @@
 pub mod adapters;
 pub mod correlation;
+pub mod execution;
 pub mod executor;
 pub mod launch_context;
 pub mod models;
 pub mod persistence;
 pub mod resolver;
 pub mod safety;
+pub mod sanitizer;
 use crate::{
     autopilot::{capture::Capture, engine::port_free, models::now},
     ports::models::PortEntry,
@@ -22,7 +24,7 @@ use std::{
     time::{Duration, Instant},
 };
 struct Record {
-    context: LaunchContext,
+    context: DisplayLaunchContext,
     capture: Option<Capture>,
 }
 #[derive(Default)]
@@ -53,14 +55,19 @@ impl Recovery {
         if let Ok(repo) = &result {
             match (repo.contexts(), repo.profiles()) {
                 (Ok(contexts), Ok(profiles)) => {
-                    for context in contexts {
-                        store.records.insert(
-                            context.id.clone(),
-                            Record {
-                                context,
-                                capture: None,
-                            },
-                        );
+                    for mut context in contexts {
+                        let capture = repo
+                            .execution(&context.id)
+                            .ok()
+                            .flatten()
+                            .and_then(|launch| launch.capture().ok());
+                        if capture.is_some() {
+                            context.recoverable = true;
+                            context.reason = "Uses the current environment with the captured toolchain paths. Secrets are not restored from history.".into();
+                        }
+                        store
+                            .records
+                            .insert(context.id.clone(), Record { context, capture });
                     }
                     for p in profiles {
                         store.profiles.insert(p.project_id.clone(), p);
@@ -80,13 +87,54 @@ impl Recovery {
             storage_error: error,
         }
     }
-    fn persist(&self, c: &LaunchContext) -> Result<(), String> {
+    fn persist(&self, c: &DisplayLaunchContext) -> Result<(), String> {
         self.persistence
             .lock()
             .map_err(|_| "Recovery storage unavailable")?
             .as_ref()
             .ok_or("Recovery storage unavailable")?
             .save(c)
+    }
+    fn persist_capture(
+        &self,
+        context: &DisplayLaunchContext,
+        capture: &Capture,
+    ) -> Result<(), String> {
+        let persistence = self
+            .persistence
+            .lock()
+            .map_err(|_| "Recovery storage unavailable")?;
+        let repo = persistence.as_ref().ok_or("Recovery storage unavailable")?;
+        repo.save_capture(context, capture)
+    }
+    fn restore_record(&self, id: &str) -> Result<(), String> {
+        if self
+            .store
+            .lock()
+            .map_err(|_| "Recovery unavailable")?
+            .records
+            .contains_key(id)
+        {
+            return Ok(());
+        }
+        let persistence = self
+            .persistence
+            .lock()
+            .map_err(|_| "Recovery storage unavailable")?;
+        let repo = persistence.as_ref().ok_or("Recovery storage unavailable")?;
+        let context = repo
+            .contexts()?
+            .into_iter()
+            .find(|c| c.id == id)
+            .ok_or("Launch context unavailable")?;
+        let capture = repo.execution(id)?.map(|c| c.capture()).transpose()?;
+        drop(persistence);
+        self.store
+            .lock()
+            .map_err(|_| "Recovery unavailable")?
+            .records
+            .insert(id.into(), Record { context, capture });
+        Ok(())
     }
     pub fn observe(&self, capture: Capture, root: ProcessIdentity) -> Result<String, String> {
         capture.validate()?;
@@ -111,18 +159,21 @@ impl Recovery {
         let mut context = launch_context::from_capture(&capture, root, Source::ShellObserved);
         let mut store = self.store.lock().map_err(|_| "Recovery unavailable")?;
         if let Some((id, previous)) = store.records.iter().find(|(_, record)| {
-            record.context.executable == context.executable
-                && record.context.args == context.args
+            record.capture.as_ref().is_some_and(|previous| {
+                previous.executable == capture.executable && previous.argv == capture.argv
+            }) && record.context.source == Source::ShellObserved
+                && (record.context.launch_root == root
+                    || !resolver::alive(record.context.launch_root))
                 && record.context.working_directory == context.working_directory
                 && record.context.kind == context.kind
                 && record.context.shell == context.shell
         }) {
             context.id = id.clone();
             context.project_id = previous.context.project_id.clone();
-            context.fingerprint = CommandFingerprint::from_context(&context).key();
+            context.fingerprint = context.grouping_key();
         }
         let id = context.id.clone();
-        self.persist(&context)?;
+        self.persist_capture(&context, &capture)?;
         if store.records.len() >= 512 {
             store
                 .records
@@ -160,6 +211,7 @@ impl Recovery {
             .ok_or("Context unavailable")?
             .context;
         context.relaunched_at = Some(now());
+        context.recovery_confidence = RecoveryConfidence::Exact;
         self.persist(context)?;
         Ok(id)
     }
@@ -205,7 +257,9 @@ impl Recovery {
                 .filter(|(_, r)| correlation::contains(entry, &ancestors, r.context.launch_root))
                 .max_by_key(|(_, r)| {
                     (
+                        r.context.relaunched_at.is_some(),
                         matches!(r.context.source, Source::ShellObserved),
+                        matches!(r.context.source, Source::ParentProcess),
                         r.context.captured_at,
                     )
                 })
@@ -226,7 +280,11 @@ impl Recovery {
                     Some((context, Some(capture)))
                 })?;
                 let id = context.id.clone();
-                let _ = self.persist(&context);
+                if let Some(capture) = &capture {
+                    let _ = self.persist_capture(&context, capture);
+                } else {
+                    let _ = self.persist(&context);
+                }
                 store
                     .records
                     .insert(id.clone(), Record { context, capture });
@@ -236,14 +294,11 @@ impl Recovery {
             let record = store.records.get_mut(&id).unwrap();
             if record.context.project_id != project && project.is_some() {
                 record.context.project_id = project;
-                record.context.fingerprint =
-                    CommandFingerprint::from_context(&record.context).key();
+                record.context.fingerprint = record.context.grouping_key();
                 let _ = self.persist(&record.context);
             }
             // A fallback recipe must not silently replace a newly observed package manager.
-            if let Some(profile) = profile.filter(|_| {
-                record.context.source != Source::ShellObserved || !record.context.recoverable
-            }) {
+            if let Some(profile) = profile.filter(|_| !record.context.recoverable) {
                 if let Ok(capture) = profile_capture(&profile) {
                     let mut context = launch_context::from_capture(
                         &capture,
@@ -254,7 +309,8 @@ impl Recovery {
                     context.captured_at = record.context.captured_at;
                     context.project_id = Some(profile.project_id);
                     context.relaunched_at = record.context.relaunched_at;
-                    context.fingerprint = CommandFingerprint::from_context(&context).key();
+                    context.fingerprint = context.grouping_key();
+                    let _ = self.persist_capture(&context, &capture);
                     record.context = context;
                     record.capture = Some(capture);
                 }
@@ -275,7 +331,11 @@ impl Recovery {
             drop(store);
             if let Ok(persistence) = self.persistence.lock() {
                 if let Some(persistence) = persistence.as_ref() {
-                    let _ = persistence.start_run(&context);
+                    if let Ok(run) = persistence.start_run(&context) {
+                        if let Some(launch) = entry.launch.as_mut() {
+                            launch.run_id = Some(run.id);
+                        }
+                    }
                     let _ = persistence.refresh_active_context(&context);
                     let _ = persistence.observe_port(&context, entry);
                 }
@@ -285,11 +345,10 @@ impl Recovery {
             if let Some(persistence) = persistence.as_ref() {
                 for (id, record) in &store.records {
                     if !resolver::alive(record.context.launch_root) {
-                        let _ = persistence.finish_run(
+                        let _ = persistence.finish_observed_root(
                             id,
-                            CommandRunState::Stopped,
+                            record.context.launch_root,
                             "The process is no longer running.",
-                            None,
                         );
                     }
                 }
@@ -564,6 +623,7 @@ impl Recovery {
             let record = store.records.get_mut(id).unwrap();
             record.context.launch_root = root;
             record.context.relaunched_at = Some(now());
+            record.context.recovery_confidence = RecoveryConfidence::Exact;
             let _ = self.persist(&record.context);
         }
         let launched_context = self
@@ -668,6 +728,26 @@ impl Recovery {
             .map(|context| (context.id.clone(), context))
             .collect();
         contexts.extend(runtime_contexts);
+        for run in &mut runs {
+            if matches!(
+                run.state,
+                CommandRunState::Running | CommandRunState::Unverified
+            ) && run.process_identity.is_none_or(|id| !resolver::alive(id))
+            {
+                run.state = CommandRunState::Stopped;
+                run.ended_at = Some(now());
+                run.termination_reason = Some(
+                    "The recorded process is no longer running; exact exit time was not observed."
+                        .into(),
+                );
+                self.persistence
+                    .lock()
+                    .map_err(|_| "Run history unavailable")?
+                    .as_ref()
+                    .ok_or("Run history unavailable")?
+                    .save_run(run)?;
+            }
+        }
         let search = query.search.unwrap_or_default().to_lowercase();
         let state = query.state.unwrap_or_default().to_uppercase();
         runs.retain(|run| {
@@ -833,6 +913,7 @@ impl Recovery {
     }
 
     pub fn pin_command(&self, port: u16, context_id: &str, pinned: bool) -> Result<(), String> {
+        self.restore_record(context_id)?;
         if port == 0 {
             return Err("Choose a port from 1–65535.".into());
         }
@@ -862,7 +943,56 @@ impl Recovery {
             .remove_run(id)
     }
 
+    pub fn context(&self, id: &str) -> Result<DisplayLaunchContext, String> {
+        self.restore_record(id)?;
+        let store = self.store.lock().map_err(|_| "Recovery unavailable")?;
+        let record = store.records.get(id).ok_or("Launch context unavailable")?;
+        let mut context = record.context.clone();
+        context.recoverable = record.capture.is_some();
+        if let Some(capture) = &record.capture {
+            if let Err(reason) = safety::validate_launch(&context, capture) {
+                context.recoverable = false;
+                context.reason = reason;
+            }
+        }
+        Ok(context)
+    }
+
+    pub fn diagnostics(&self, id: &str) -> Result<serde_json::Value, String> {
+        if !cfg!(debug_assertions) {
+            return Err("History diagnostics are available only in development builds.".into());
+        }
+        self.restore_record(id)?;
+        let store = self.store.lock().map_err(|_| "Recovery unavailable")?;
+        let record = store.records.get(id).ok_or("Launch context unavailable")?;
+        let context = &record.context;
+        let decisions = record
+            .capture
+            .as_ref()
+            .map(|capture| sanitizer::arguments(capture).1)
+            .unwrap_or_default();
+        let availability = record
+            .capture
+            .as_ref()
+            .map(|capture| safety::validate_launch(context, capture))
+            .unwrap_or_else(|| Err(context.reason.clone()));
+        let environment: Vec<_> = context.environment.iter().map(|variable| serde_json::json!({
+            "name": variable.name,
+            "classification": if variable.value.is_none() { "secret" } else { "non_sensitive" },
+        })).collect();
+        Ok(serde_json::json!({
+            "launchContextId": context.id, "projectIdentity": context.project_id,
+            "source": context.source, "confidence": context.recovery_confidence,
+            "executable": context.executable, "argsCount": record.capture.as_ref().map(|c| c.argv.len().saturating_sub(1)),
+            "cwd": context.working_directory, "displayCommand": context.command,
+            "redactionDecisions": decisions, "environment": environment,
+            "environmentStrategy": context.environment_strategy,
+            "runAgainAvailabilityReason": availability.err().unwrap_or_else(|| if context.reason.is_empty() { "Structured launch data is available; duplicate and port checks run before launch.".into() } else { context.reason.clone() }),
+        }))
+    }
+
     pub fn run_again(&self, id: &str, confirmed: bool) -> Result<RecoveryStatus, String> {
+        self.restore_record(id)?;
         let _operation = self
             .operation
             .try_lock()
@@ -878,6 +1008,16 @@ impl Recovery {
                     .ok_or_else(|| record.context.reason.clone())?,
             )
         };
+        if let Some(launch) = self
+            .persistence
+            .lock()
+            .map_err(|_| "Recovery storage unavailable")?
+            .as_ref()
+            .ok_or("Recovery storage unavailable")?
+            .execution(id)?
+        {
+            launch.validate_directory()?;
+        }
         safety::validate_launch(&context, &capture)?;
         if safety::requires_confirmation(&context, &capture) && !confirmed {
             return Err("Confirmation required: this recovered command is outside the standard development-command adapters. Review its exact arguments and working directory before running it.".into());
@@ -903,16 +1043,45 @@ impl Recovery {
                 .persistence
                 .lock()
                 .map_err(|_| "Run history unavailable")?;
-            let mut ports: Vec<_> = persistence
+            let runs: Vec<_> = persistence
                 .as_ref()
                 .ok_or("Run history unavailable")?
                 .runs(5000)?
                 .into_iter()
                 .filter(|run| run.launch_context_id == id)
-                .find(|run| !run.observed_ports.is_empty())
-                .into_iter()
-                .flat_map(|run| run.observed_ports.into_iter().map(|port| port.port))
                 .collect();
+            let mut ports = launch_context::configured_ports(&capture);
+            if ports.is_empty() {
+                ports = runs
+                    .iter()
+                    .find(|run| !run.observed_ports.is_empty())
+                    .map(|run| run.observed_ports.iter().map(|port| port.port).collect())
+                    .unwrap_or_default();
+                // Repeated runs teach us which listeners are stable. Keep all
+                // observations in History, but do not demand a random worker
+                // control port reopen on the next execution.
+                let previous: Vec<_> = runs
+                    .iter()
+                    .filter(|run| !run.observed_ports.is_empty())
+                    .take(5)
+                    .collect();
+                if previous.len() > 1 {
+                    let stable: Vec<_> = ports
+                        .iter()
+                        .copied()
+                        .filter(|port| {
+                            previous.iter().all(|run| {
+                                run.observed_ports
+                                    .iter()
+                                    .any(|binding| binding.port == *port)
+                            })
+                        })
+                        .collect();
+                    if !stable.is_empty() {
+                        ports = stable;
+                    }
+                }
+            }
             ports.sort_unstable();
             ports.dedup();
             ports
@@ -958,6 +1127,7 @@ impl Recovery {
         };
         context.launch_root = root;
         context.relaunched_at = Some(now());
+        context.recovery_confidence = RecoveryConfidence::Exact;
         {
             let mut store = self.store.lock().map_err(|_| "Recovery unavailable")?;
             let record = store
@@ -1002,9 +1172,18 @@ impl Recovery {
             );
         }
         if expected_ports.is_empty() {
+            self.persistence
+                .lock()
+                .map_err(|_| "Run history unavailable")?
+                .as_ref()
+                .ok_or("Run history unavailable")?
+                .mark_unverified(
+                    id,
+                    "Process started; no historical service port is available to verify readiness.",
+                )?;
             self.update(
                 id,
-                RecoveryState::Running,
+                RecoveryState::Unverified,
                 format!(
                     "{} started. No historical port was available to verify.",
                     context.command
@@ -1145,7 +1324,7 @@ impl Recovery {
         );
         context.project_id = Some(project.into());
         let id = context.id.clone();
-        self.persist(&context)?;
+        self.persist_capture(&context, &capture)?;
         let (root, output) = executor::launch(capture.clone(), &self.output_directory)?;
         context.launch_root = root;
         context.relaunched_at = Some(now());

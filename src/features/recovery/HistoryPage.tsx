@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { PortEntry } from "../../lib/types";
+import type { PortEntry, ProcessAction } from "../../lib/types";
 import { TimelinePage } from "../timeline/TimelinePage";
 import { RunHistoryPage } from "./RunHistoryPage";
 
@@ -10,6 +10,7 @@ export function HistoryPage({
   paused,
   failed,
   inspect,
+  requestAction,
   toggleFavorite,
   copy,
   refreshPorts,
@@ -21,6 +22,7 @@ export function HistoryPage({
   paused: boolean;
   failed: boolean;
   inspect: (entry: PortEntry) => void;
+  requestAction: (entry: PortEntry, action: ProcessAction) => void;
   toggleFavorite: (port: number) => void;
   copy: (value: string, label: string) => void;
   refreshPorts: () => Promise<unknown>;
@@ -63,6 +65,7 @@ export function HistoryPage({
           ports={ports}
           favorites={favorites}
           inspect={inspect}
+          requestAction={requestAction}
           openTimeline={(selectedPort) => {
             setPort(selectedPort);
             setView("timeline");
@@ -80,7 +83,10 @@ export function HistoryPage({
           paused={paused}
           failed={failed}
           inspect={inspect}
+          requestAction={requestAction}
           toggleFavorite={toggleFavorite}
+          refreshPorts={refreshPorts}
+          notify={notify}
         />
       )}
     </div>
