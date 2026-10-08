@@ -1,3 +1,4 @@
+import { version } from "../../package.json";
 import {
   FolderGit2,
   Anchor,
@@ -138,7 +139,7 @@ export function Sidebar({
                 ? "Monitoring paused"
                 : "Live monitoring"}
           </button>
-          <span>v0.1.0</span>
+          <span>v{version}</span>
         </div>
       </div>
     </aside>
